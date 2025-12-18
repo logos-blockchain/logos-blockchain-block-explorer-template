@@ -84,8 +84,9 @@ B <--> D["Database<br/>(SQLite)"]
 
 2. Run the block explorer:
    ```bash
-   python src/main.py
+   PYTHONPATH=src uv run python -m main
    ```
+By default, this will try to connect to a local Node running on port 18080.
 
 - You can optionally run it via Docker with:
     ```bash

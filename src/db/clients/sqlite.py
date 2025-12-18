@@ -4,8 +4,8 @@ from typing import Iterator
 from sqlalchemy.engine.base import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
+from constants import DIR_REPO
 from db.clients.base import DbClient
-from src import DIR_REPO
 
 SQLITE_DB_PATH = DIR_REPO.joinpath("sqlite.db")
 

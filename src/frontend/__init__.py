@@ -1,4 +1,4 @@
-from src import DIR_REPO
+from constants import DIR_REPO
 
 STATIC_DIR = DIR_REPO.joinpath("static")
 

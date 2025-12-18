@@ -6,12 +6,12 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.datastructures import State
 
+from constants import DIR_REPO
 from db.blocks import BlockRepository
 from db.clients import DbClient
 from db.transaction import TransactionRepository
 from node.api.base import NodeApi
 from node.manager.base import NodeManager
-from src import DIR_REPO
 
 ENV_FILEPATH = DIR_REPO.joinpath(".env")
 
@@ -21,8 +21,8 @@ class NBESettings(BaseSettings):
 
     node_compose_filepath: Optional[str] = Field(alias="NBE_NODE_COMPOSE_FILEPATH", default=None)
 
-    node_api: Literal["http", "fake"] = Field(alias="NBE_NODE_API")
-    node_manager: Literal["docker", "noop"] = Field(alias="NBE_NODE_MANAGER")
+    node_api: Literal["http", "fake"] = Field(alias="NBE_NODE_API", default="http")
+    node_manager: Literal["docker", "noop"] = Field(alias="NBE_NODE_MANAGER", default="noop")
 
     node_api_host: str = Field(alias="NBE_NODE_API_HOST", default="127.0.0.1")
     node_api_port: int = Field(alias="NBE_NODE_API_PORT", default=18080)
