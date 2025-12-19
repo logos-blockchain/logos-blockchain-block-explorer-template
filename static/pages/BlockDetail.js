@@ -2,6 +2,7 @@
 import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE } from '../lib/api.js';
+import { shortenHex } from '../lib/utils.js';
 
 const OPERATIONS_PREVIEW_LIMIT = 2;
 
@@ -73,15 +74,14 @@ function CopyPill({ text }) {
 }
 
 export default function BlockDetailPage({ parameters }) {
-    const blockIdParameter = parameters[0];
-    const blockId = Number.parseInt(String(blockIdParameter), 10);
-    const isValidId = Number.isInteger(blockId) && blockId >= 0;
+    const blockHash = parameters[0];
+    const isValidHash = typeof blockHash === 'string' && blockHash.length > 0;
 
     const [block, setBlock] = useState(null);
     const [errorMessage, setErrorMessage] = useState('');
-    const [errorKind, setErrorKind] = useState(null); // 'invalid-id' | 'not-found' | 'network' | null
+    const [errorKind, setErrorKind] = useState(null); // 'invalid-hash' | 'not-found' | 'network' | null
 
-    const pageTitle = useMemo(() => `Block ${String(blockIdParameter)}`, [blockIdParameter]);
+    const pageTitle = useMemo(() => `Block ${shortenHex(blockHash)}`, [blockHash]);
     useEffect(() => {
         document.title = pageTitle;
     }, [pageTitle]);
@@ -91,9 +91,9 @@ export default function BlockDetailPage({ parameters }) {
         setErrorMessage('');
         setErrorKind(null);
 
-        if (!isValidId) {
-            setErrorKind('invalid-id');
-            setErrorMessage('Invalid block id.');
+        if (!isValidHash) {
+            setErrorKind('invalid-hash');
+            setErrorMessage('Invalid block hash.');
             return;
         }
 
@@ -102,7 +102,7 @@ export default function BlockDetailPage({ parameters }) {
 
         (async () => {
             try {
-                const res = await fetch(API.BLOCK_DETAIL_BY_ID(blockId), {
+                const res = await fetch(API.BLOCK_DETAIL_BY_HASH(blockHash), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
@@ -127,7 +127,7 @@ export default function BlockDetailPage({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [blockId, isValidId]);
+    }, [blockHash, isValidHash]);
 
     const header = block?.header ?? {}; // back-compat only
     const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
@@ -135,8 +135,7 @@ export default function BlockDetailPage({ parameters }) {
     // Prefer new top-level fields; fallback to legacy header.*
     const slot = block?.slot ?? header?.slot ?? null;
     const blockRoot = block?.block_root ?? header?.block_root ?? '';
-    const blockHash = block?.hash ?? header?.hash ?? '';
-    const parentId = block?.parent_id ?? null;
+    const currentBlockHash = block?.hash ?? header?.hash ?? '';
     const parentHash = block?.parent_block_hash ?? header?.parent_block ?? '';
 
     return h(
@@ -152,7 +151,7 @@ export default function BlockDetailPage({ parameters }) {
         ),
 
         // Error states
-        errorKind === 'invalid-id' && h('p', { style: 'color:#ff8a8a' }, errorMessage),
+        errorKind === 'invalid-hash' && h('p', { style: 'color:#ff8a8a' }, errorMessage),
         errorKind === 'not-found' &&
             h(
                 'div',
@@ -202,12 +201,12 @@ export default function BlockDetailPage({ parameters }) {
                                 'span',
                                 {
                                     class: 'pill mono',
-                                    title: blockHash,
+                                    title: currentBlockHash,
                                     style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
                                 },
-                                String(blockHash),
+                                String(currentBlockHash),
                             ),
-                            h(CopyPill, { text: blockHash }),
+                            h(CopyPill, { text: currentBlockHash }),
                         ),
 
                         // Root (pill + copy)
@@ -227,32 +226,32 @@ export default function BlockDetailPage({ parameters }) {
                             h(CopyPill, { text: blockRoot }),
                         ),
 
-                        // Parent (id link OR parent hash) + copy
+                        // Parent (parent hash link) + copy
                         h('div', null, h('b', null, 'Parent:')),
                         h(
                             'div',
                             { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
-                            parentId != null
+                            parentHash
                                 ? h(
                                       'a',
                                       {
                                           class: 'pill mono linkish',
-                                          href: PAGE.BLOCK_DETAIL(parentId),
-                                          title: String(parentId),
+                                          href: PAGE.BLOCK_DETAIL(parentHash),
+                                          title: String(parentHash),
                                           style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
                                       },
-                                      String(parentId),
+                                      shortenHex(parentHash),
                                   )
                                 : h(
                                       'span',
                                       {
                                           class: 'pill mono',
-                                          title: parentHash,
+                                          title: '—',
                                           style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
                                       },
-                                      String(parentHash || '—'),
+                                      '—',
                                   ),
-                            h(CopyPill, { text: parentId ?? parentHash }),
+                            h(CopyPill, { text: parentHash }),
                         ),
                     ),
                 ),
@@ -282,7 +281,11 @@ export default function BlockDetailPage({ parameters }) {
                                 h(
                                     'tr',
                                     null,
-                                    h('th', { style: 'text-align:left; padding:8px 10px; white-space:nowrap;' }, 'ID'),
+                                    h(
+                                        'th',
+                                        { style: 'text-align:left; padding:8px 10px; white-space:nowrap;' },
+                                        'Hash',
+                                    ),
                                     h(
                                         'th',
                                         { style: 'text-align:center; padding:8px 10px; white-space:nowrap;' },
@@ -311,8 +314,8 @@ export default function BlockDetailPage({ parameters }) {
 
                                     return h(
                                         'tr',
-                                        { key: t?.id ?? `${count}/${total}` },
-                                        // ID (left)
+                                        { key: t?.hash ?? `${count}/${total}` },
+                                        // Hash (left)
                                         h(
                                             'td',
                                             { style: 'text-align:left; padding:8px 10px; white-space:nowrap;' },
@@ -320,10 +323,10 @@ export default function BlockDetailPage({ parameters }) {
                                                 'a',
                                                 {
                                                     class: 'linkish mono',
-                                                    href: PAGE.TRANSACTION_DETAIL(t?.id ?? ''),
-                                                    title: String(t?.id ?? ''),
+                                                    href: PAGE.TRANSACTION_DETAIL(t?.hash ?? ''),
+                                                    title: String(t?.hash ?? ''),
                                                 },
-                                                String(t?.id ?? ''),
+                                                shortenHex(t?.hash ?? ''),
                                             ),
                                         ),
                                         // Outputs (center)

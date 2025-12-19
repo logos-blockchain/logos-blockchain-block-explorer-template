@@ -1,13 +1,14 @@
 from http.client import NOT_FOUND
 from typing import TYPE_CHECKING, AsyncIterator, List
 
-from fastapi import Path, Query
+from fastapi import Query
 from rusty_results import Empty, Option, Some
 from starlette.responses import JSONResponse, Response
 
 from api.streams import into_ndjson_stream
 from api.v1.serializers.blocks import BlockRead
 from core.api import NBERequest, NDJsonStreamingResponse
+from core.types import dehexify
 from models.block import Block
 
 if TYPE_CHECKING:
@@ -30,8 +31,11 @@ async def stream(request: NBERequest, prefetch_limit: int = Query(0, alias="pref
     return NDJsonStreamingResponse(ndjson_blocks_stream)
 
 
-async def get(request: NBERequest, block_id: int = Path(ge=1)) -> Response:
-    block = await request.app.state.block_repository.get_by_id(block_id)
+async def get(request: NBERequest, block_hash: str) -> Response:
+    if not block_hash:
+        return Response(status_code=NOT_FOUND)
+    block_hash = dehexify(block_hash)
+    block = await request.app.state.block_repository.get_by_hash(block_hash)
     return block.map(lambda _block: JSONResponse(BlockRead.from_block(_block).model_dump(mode="json"))).unwrap_or_else(
         lambda: Response(status_code=NOT_FOUND)
     )

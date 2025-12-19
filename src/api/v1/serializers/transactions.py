@@ -10,7 +10,7 @@ from models.transactions.transaction import Transaction
 
 class TransactionRead(NbeSchema):
     id: int
-    block_id: int
+    block_hash: HexBytes
     hash: HexBytes
     operations: List[Operation]
     inputs: List[HexBytes]
@@ -23,7 +23,7 @@ class TransactionRead(NbeSchema):
     def from_transaction(cls, transaction: Transaction) -> Self:
         return cls(
             id=transaction.id,
-            block_id=transaction.block.id,
+            block_hash=transaction.block.hash,
             hash=transaction.hash,
             operations=transaction.operations,
             inputs=transaction.inputs,

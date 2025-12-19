@@ -15,8 +15,8 @@ export default function BlocksTable() {
         const body = bodyRef.current;
         const counter = countRef.current;
 
-        // 6 columns: ID | Slot | Hash | Parent | Block Root | Transactions
-        ensureFixedRowCount(body, 6, TABLE_SIZE);
+        // 5 columns: Hash | Slot | Parent | Block Root | Transactions
+        ensureFixedRowCount(body, 5, TABLE_SIZE);
 
         abortRef.current?.abort();
         abortRef.current = new AbortController();
@@ -33,14 +33,14 @@ export default function BlocksTable() {
                 if (key) seenKeysRef.current.delete(key);
                 body.deleteRow(-1);
             }
-            // pad with placeholders to TABLE_SIZE (6 cols)
-            ensureFixedRowCount(body, 6, TABLE_SIZE);
+            // pad with placeholders to TABLE_SIZE (5 cols)
+            ensureFixedRowCount(body, 5, TABLE_SIZE);
             const real = [...body.rows].filter((r) => !r.classList.contains('ph')).length;
             counter.textContent = String(real);
         };
 
-        const navigateToBlockDetail = (blockId) => {
-            history.pushState({}, '', PAGE.BLOCK_DETAIL(blockId));
+        const navigateToBlockDetail = (blockHash) => {
+            history.pushState({}, '', PAGE.BLOCK_DETAIL(blockHash));
             window.dispatchEvent(new PopStateEvent('popstate'));
         };
 
@@ -48,15 +48,16 @@ export default function BlocksTable() {
             const tr = document.createElement('tr');
             tr.dataset.key = key;
 
-            // ID (clickable)
+            // Hash (clickable, replaces ID)
             const tdId = document.createElement('td');
             const linkId = document.createElement('a');
             linkId.className = 'linkish mono';
-            linkId.href = PAGE.BLOCK_DETAIL(b.id);
-            linkId.textContent = String(b.id);
+            linkId.href = PAGE.BLOCK_DETAIL(b.hash);
+            linkId.textContent = shortenHex(b.hash);
+            linkId.title = b.hash;
             linkId.addEventListener('click', (e) => {
                 e.preventDefault();
-                navigateToBlockDetail(b.id);
+                navigateToBlockDetail(b.hash);
             });
             tdId.appendChild(linkId);
 
@@ -67,21 +68,18 @@ export default function BlocksTable() {
             spSlot.textContent = String(b.slot);
             tdSlot.appendChild(spSlot);
 
-            // Hash
-            const tdHash = document.createElement('td');
-            const spHash = document.createElement('span');
-            spHash.className = 'mono';
-            spHash.title = b.hash;
-            spHash.textContent = shortenHex(b.hash);
-            tdHash.appendChild(spHash);
-
             // Parent (block.parent_block_hash)
             const tdParent = document.createElement('td');
-            const spParent = document.createElement('span');
-            spParent.className = 'mono';
-            spParent.title = b.parent;
-            spParent.textContent = shortenHex(b.parent);
-            tdParent.appendChild(spParent);
+            const linkParent = document.createElement('a');
+            linkParent.className = 'linkish mono';
+            linkParent.href = PAGE.BLOCK_DETAIL(b.parent);
+            linkParent.textContent = shortenHex(b.parent);
+            linkParent.title = b.parent;
+            linkParent.addEventListener('click', (e) => {
+                e.preventDefault();
+                navigateToBlockDetail(b.parent, e);
+            });
+            tdParent.appendChild(linkParent);
 
             // Block Root
             const tdRoot = document.createElement('td');
@@ -98,7 +96,7 @@ export default function BlocksTable() {
             spCount.textContent = String(b.transactionCount);
             tdCount.appendChild(spCount);
 
-            tr.append(tdId, tdSlot, tdHash, tdParent, tdRoot, tdCount);
+            tr.append(tdId, tdSlot, tdParent, tdRoot, tdCount);
             body.insertBefore(tr, body.firstChild);
             pruneAndPad();
         };
@@ -165,9 +163,8 @@ export default function BlocksTable() {
                 h(
                     'colgroup',
                     null,
-                    h('col', { style: 'width:80px' }), // ID
-                    h('col', { style: 'width:90px' }), // Slot
                     h('col', { style: 'width:240px' }), // Hash
+                    h('col', { style: 'width:90px' }), // Slot
                     h('col', { style: 'width:240px' }), // Parent
                     h('col', { style: 'width:240px' }), // Block Root
                     h('col', { style: 'width:120px' }), // Transactions
@@ -178,9 +175,8 @@ export default function BlocksTable() {
                     h(
                         'tr',
                         null,
-                        h('th', null, 'ID'),
-                        h('th', null, 'Slot'),
                         h('th', null, 'Hash'),
+                        h('th', null, 'Slot'),
                         h('th', null, 'Parent'),
                         h('th', null, 'Block Root'),
                         h('th', null, 'Transactions'),

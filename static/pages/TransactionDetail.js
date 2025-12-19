@@ -1,7 +1,8 @@
 // static/pages/TransactionDetail.js
 import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { API } from '../lib/api.js';
+import { API, PAGE } from '../lib/api.js';
+import { shortenHex } from '../lib/utils.js';
 
 // ————— helpers —————
 const isNumber = (v) => typeof v === 'number' && !Number.isNaN(v);
@@ -105,7 +106,7 @@ function normalizeTransaction(raw) {
 
     return {
         id: raw?.id ?? '',
-        blockId: raw?.block_id ?? null,
+        blockHash: raw?.block_hash ?? null,
         hash: renderBytes(raw?.hash),
         proof: renderBytes(raw?.proof),
         operations: ops, // keep objects, we’ll label in UI
@@ -143,15 +144,15 @@ function Summary({ tx }) {
             { style: 'display:grid; gap:8px;' },
 
             // Block link
-            tx.blockId != null &&
+            tx.blockHash != null &&
                 h(
                     'div',
                     null,
                     h('b', null, 'Block: '),
                     h(
                         'a',
-                        { class: 'linkish mono', href: API.BLOCK_DETAIL_BY_ID(tx.blockId), title: String(tx.blockId) },
-                        String(tx.blockId),
+                        { class: 'linkish mono', href: PAGE.BLOCK_DETAIL(tx.blockHash), title: String(tx.blockHash) },
+                        shortenHex(tx.blockHash),
                     ),
                 ),
 
@@ -349,14 +350,13 @@ function Ledger({ ledger }) {
 
 // ————— page —————
 export default function TransactionDetail({ parameters }) {
-    const idParam = parameters?.[0];
-    const id = Number.parseInt(String(idParam), 10);
-    const isValidId = Number.isInteger(id) && id >= 0;
+    const transactionHash = parameters?.[0];
+    const isValidHash = typeof transactionHash === 'string' && transactionHash.length > 0;
 
     const [tx, setTx] = useState(null);
     const [err, setErr] = useState(null); // { kind: 'invalid'|'not-found'|'network', msg: string }
 
-    const pageTitle = useMemo(() => `Transaction ${String(idParam)}`, [idParam]);
+    const pageTitle = useMemo(() => `Transaction ${shortenHex(transactionHash)}`, [transactionHash]);
     useEffect(() => {
         document.title = pageTitle;
     }, [pageTitle]);
@@ -365,8 +365,8 @@ export default function TransactionDetail({ parameters }) {
         setTx(null);
         setErr(null);
 
-        if (!isValidId) {
-            setErr({ kind: 'invalid', msg: 'Invalid transaction id.' });
+        if (!isValidHash) {
+            setErr({ kind: 'invalid', msg: 'Invalid transaction hash.' });
             return;
         }
 
@@ -375,7 +375,7 @@ export default function TransactionDetail({ parameters }) {
 
         (async () => {
             try {
-                const res = await fetch(API.TRANSACTION_DETAIL_BY_ID(id), {
+                const res = await fetch(API.TRANSACTION_DETAIL_BY_HASH(transactionHash), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
@@ -397,7 +397,7 @@ export default function TransactionDetail({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [id, isValidId]);
+    }, [transactionHash, isValidHash]);
 
     return h(
         'main',

@@ -1,13 +1,14 @@
 from http.client import NOT_FOUND
 from typing import TYPE_CHECKING, AsyncIterator, List
 
-from fastapi import Path, Query
+from fastapi import Query
 from rusty_results import Empty, Option, Some
 from starlette.responses import JSONResponse, Response
 
 from api.streams import into_ndjson_stream
 from api.v1.serializers.transactions import TransactionRead
 from core.api import NBERequest, NDJsonStreamingResponse
+from core.types import dehexify
 from models.transactions.transaction import Transaction
 
 if TYPE_CHECKING:
@@ -36,8 +37,11 @@ async def stream(request: NBERequest, prefetch_limit: int = Query(0, alias="pref
     return NDJsonStreamingResponse(ndjson_transactions_stream)
 
 
-async def get(request: NBERequest, transaction_id: int = Path(ge=1)) -> Response:
-    transaction = await request.app.state.transaction_repository.get_by_id(transaction_id)
+async def get(request: NBERequest, transaction_hash: str) -> Response:
+    if not transaction_hash:
+        return Response(status_code=NOT_FOUND)
+    transaction_hash = dehexify(transaction_hash)
+    transaction = await request.app.state.transaction_repository.get_by_hash(transaction_hash)
     return transaction.map(
         lambda _transaction: JSONResponse(TransactionRead.from_transaction(_transaction).model_dump(mode="json"))
     ).unwrap_or_else(lambda: Response(status_code=NOT_FOUND))

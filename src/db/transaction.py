@@ -51,7 +51,7 @@ class TransactionRepository:
             else:
                 return Empty()
 
-    async def get_by_hash(self, transaction_hash: str) -> Option[Transaction]:
+    async def get_by_hash(self, transaction_hash: bytes) -> Option[Transaction]:
         statement = select(Transaction).where(Transaction.hash == transaction_hash)
 
         with self.client.session() as session:

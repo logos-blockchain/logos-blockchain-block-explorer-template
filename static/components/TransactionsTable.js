@@ -78,6 +78,7 @@ function normalizeTransaction(raw) {
 
     return {
         id: raw?.id ?? '',
+        hash: raw?.hash ?? '',
         operations: ops,
         executionGasPrice: toNumber(raw?.execution_gas_price),
         storageGasPrice: toNumber(raw?.storage_gas_price),
@@ -90,10 +91,10 @@ function normalizeTransaction(raw) {
 function buildTransactionRow(tx) {
     const tr = document.createElement('tr');
 
-    // ID
+    // Hash (replaces ID)
     const tdId = document.createElement('td');
     tdId.className = 'mono';
-    tdId.appendChild(createLink(`/transactions/${tx.id}`, String(tx.id), String(tx.id)));
+    tdId.appendChild(createLink(`/transactions/${tx.hash}`, shortenHex(tx.hash), tx.hash));
 
     // Operations (preview)
     const tdOps = document.createElement('td');
@@ -127,7 +128,7 @@ export default function TransactionsTable() {
         const body = bodyRef.current;
         const counter = countRef.current;
 
-        // 4 columns: ID | Operations | Outputs | Gas
+        // 4 columns: Hash | Operations | Outputs | Gas
         ensureFixedRowCount(body, 4, TABLE_SIZE);
 
         abortRef.current?.abort();
@@ -183,7 +184,7 @@ export default function TransactionsTable() {
                 h(
                     'colgroup',
                     null,
-                    h('col', { style: 'width:120px' }), // ID
+                    h('col', { style: 'width:240px' }), // Hash
                     h('col', null), // Operations
                     h('col', { style: 'width:200px' }), // Outputs (count / total)
                     h('col', { style: 'width:200px' }), // Gas (execution / storage)
@@ -194,7 +195,7 @@ export default function TransactionsTable() {
                     h(
                         'tr',
                         null,
-                        h('th', null, 'ID'),
+                        h('th', null, 'Hash'),
                         h('th', null, 'Operations'),
                         h('th', null, 'Outputs (count / total)'),
                         h('th', null, 'Gas (execution / storage)'),

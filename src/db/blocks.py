@@ -46,7 +46,7 @@ class BlockRepository:
             else:
                 return Empty()
 
-    async def get_by_hash(self, block_hash: str) -> Option[Block]:
+    async def get_by_hash(self, block_hash: bytes) -> Option[Block]:
         statement = select(Block).where(Block.hash == block_hash)
 
         with self.client.session() as session:
