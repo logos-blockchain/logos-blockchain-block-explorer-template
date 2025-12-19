@@ -1,14 +1,14 @@
 from typing import List, Self
 
 from pydantic import Field
-from rusty_results import Option
 
 from core.models import NbeSerializer
 from models.transactions.transaction import Transaction
-from node.api.serializers.fields import BytesFromHex
+from node.api.serializers.fields import BytesFromIntArray
 from node.api.serializers.proof import (
     OperationProofSerializer,
     OperationProofSerializerField,
+    ZkSignatureComponentsSerializer,
 )
 from node.api.serializers.transaction import TransactionSerializer
 from utils.protocols import FromRandom
@@ -20,8 +20,8 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
     operations_proofs: List[OperationProofSerializerField] = Field(
         alias="ops_proofs", description="List of OperationProof. Order should match `Self::transaction::operations`."
     )
-    ledger_transaction_proof: BytesFromHex = Field(
-        alias="ledger_tx_proof", description="Hash.", min_length=128, max_length=128
+    ledger_transaction_proof: ZkSignatureComponentsSerializer = Field(
+        alias="ledger_tx_proof", description="ZK proof with pi_a, pi_b, pi_c."
     )
 
     def into_transaction(self) -> Transaction:
@@ -42,13 +42,20 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
         ledger_transaction = self.transaction.ledger_transaction
         outputs = [output.into_note() for output in ledger_transaction.outputs]
 
+        # Combine pi_a, pi_b, pi_c into single proof bytes
+        proof_bytes = (
+            self.ledger_transaction_proof.pi_a +
+            self.ledger_transaction_proof.pi_b +
+            self.ledger_transaction_proof.pi_c
+        )
+
         return Transaction.model_validate(
             {
                 "hash": self.transaction.hash,
                 "operations": operations,
                 "inputs": ledger_transaction.inputs,
                 "outputs": outputs,
-                "proof": self.ledger_transaction_proof,
+                "proof": proof_bytes,
                 "execution_gas_price": self.transaction.execution_gas_price,
                 "storage_gas_price": self.transaction.storage_gas_price,
             }
@@ -60,5 +67,13 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
         n = len(transaction.operations_contents)
         operations_proofs = [OperationProofSerializer.from_random() for _ in range(n)]
         return cls.model_validate(
-            {"mantle_tx": transaction, "ops_proofs": operations_proofs, "ledger_tx_proof": random_bytes(128).hex()}
+            {
+                "mantle_tx": transaction,
+                "ops_proofs": operations_proofs,
+                "ledger_tx_proof": {
+                    "pi_a": list(random_bytes(32)),
+                    "pi_b": list(random_bytes(64)),
+                    "pi_c": list(random_bytes(32)),
+                },
+            }
         )

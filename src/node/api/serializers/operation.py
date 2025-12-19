@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import IntEnum
 from random import choice, randint
-from typing import Annotated, List, Optional, Self, Union
+from typing import Annotated, Any, Dict, List, Optional, Self, Union
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from core.models import NbeSerializer
 from models.transactions.operations.contents import (
@@ -16,7 +16,7 @@ from models.transactions.operations.contents import (
     SDPDeclare,
     SDPWithdraw,
 )
-from node.api.serializers.fields import BytesFromHex, BytesFromInt, BytesFromIntArray
+from node.api.serializers.fields import BytesFlexible, BytesFromHex, BytesFromInt, BytesFromIntArray
 from utils.protocols import EnforceSubclassFromRandom
 from utils.random import random_bytes
 
@@ -28,9 +28,9 @@ class OperationContentSerializer(NbeSerializer, EnforceSubclassFromRandom, ABC):
 
 
 class ChannelInscribeSerializer(OperationContentSerializer):
-    channel_id: BytesFromIntArray = Field(description="Bytes as a 32-integer array.")
-    inscription: BytesFromIntArray = Field(description="Bytes as an integer array.")
-    parent: BytesFromIntArray = Field(description="Bytes as a 32-integer array.")
+    channel_id: BytesFlexible = Field(description="Bytes as hex or 32-integer array.")
+    inscription: BytesFlexible = Field(description="Bytes as hex or integer array.")
+    parent: BytesFlexible = Field(description="Bytes as hex or 32-integer array.")
     signer: BytesFromHex = Field(description="Public Key in hex format.")
 
     def into_operation_content(self) -> ChannelInscribe:
@@ -56,11 +56,11 @@ class ChannelInscribeSerializer(OperationContentSerializer):
 
 
 class ChannelBlobSerializer(OperationContentSerializer):
-    channel: BytesFromIntArray = Field(description="Bytes as a 32-integer array.")
-    blob: BytesFromIntArray = Field(description="Bytes as a 32-integer array.")
+    channel: BytesFlexible = Field(description="Bytes as hex or 32-integer array.")
+    blob: BytesFlexible = Field(description="Bytes as hex or 32-integer array.")
     blob_size: int
     da_storage_gas_price: int
-    parent: BytesFromIntArray = Field(description="Bytes as a 32-integer array.")
+    parent: BytesFlexible = Field(description="Bytes as hex or 32-integer array.")
     signer: BytesFromHex = Field(description="Public Key in hex format.")
 
     def into_operation_content(self) -> ChannelBlob:
@@ -90,7 +90,7 @@ class ChannelBlobSerializer(OperationContentSerializer):
 
 
 class ChannelSetKeysSerializer(OperationContentSerializer):
-    channel: BytesFromIntArray = Field(description="Bytes as a 32-integer array.")
+    channel: BytesFlexible = Field(description="Bytes as hex or 32-integer array.")
     keys: List[BytesFromHex] = Field(description="List of Public Keys in hex format.")
 
     def into_operation_content(self) -> ChannelSetKeys:
@@ -112,9 +112,9 @@ class ChannelSetKeysSerializer(OperationContentSerializer):
         )
 
 
-class SDPDeclareServiceType(Enum):
-    BN = "BN"
-    DA = "DA"
+class SDPDeclareServiceType(IntEnum):
+    BN = 0
+    DA = 1
 
 
 class SDPDeclareSerializer(OperationContentSerializer):
@@ -127,7 +127,7 @@ class SDPDeclareSerializer(OperationContentSerializer):
     def into_operation_content(self) -> SDPDeclare:
         return SDPDeclare.model_validate(
             {
-                "service_type": self.service_type.value,
+                "service_type": self.service_type.name,
                 "locators": self.locators,
                 "provider_id": self.provider_id,
                 "zk_id": self.zk_id,
@@ -140,7 +140,7 @@ class SDPDeclareSerializer(OperationContentSerializer):
         n = 1 if randint(0, 1) <= 0.5 else randint(1, 5)
         return cls.model_validate(
             {
-                "service_type": choice(list(SDPDeclareServiceType)).value,
+                "service_type": choice(list(SDPDeclareServiceType)),
                 "locators": [random_bytes(32).hex() for _ in range(n)],
                 "provider_id": list(random_bytes(32)),
                 "zk_id": random_bytes(32).hex(),
@@ -174,7 +174,7 @@ class SDPWithdrawSerializer(OperationContentSerializer):
 class SDPActiveSerializer(OperationContentSerializer):
     declaration_id: BytesFromIntArray = Field(description="Bytes as a 32-integer array.")
     nonce: BytesFromInt
-    metadata: Optional[BytesFromIntArray] = Field(description="Bytes as an integer array.")
+    metadata: Optional[BytesFromIntArray] = Field(default=None, description="Bytes as an integer array.")
 
     def into_operation_content(self) -> SDPActive:
         return SDPActive.model_validate(
@@ -219,6 +219,59 @@ class LeaderClaimSerializer(OperationContentSerializer):
                 "mantle_tx_hash": int.from_bytes(random_bytes(8)),
             }
         )
+
+
+class OpCode(IntEnum):
+    ChannelInscribe = 0
+    ChannelBlob = 1
+    ChannelSetKeys = 2
+    SDPDeclare = 3
+    SDPWithdraw = 4
+    SDPActive = 5
+    LeaderClaim = 6
+
+
+# Map opcode to serializer class
+OPCODE_TO_SERIALIZER: Dict[int, type[OperationContentSerializer]] = {
+    OpCode.ChannelInscribe: ChannelInscribeSerializer,
+    OpCode.ChannelBlob: ChannelBlobSerializer,
+    OpCode.ChannelSetKeys: ChannelSetKeysSerializer,
+    OpCode.SDPDeclare: SDPDeclareSerializer,
+    OpCode.SDPWithdraw: SDPWithdrawSerializer,
+    OpCode.SDPActive: SDPActiveSerializer,
+    OpCode.LeaderClaim: LeaderClaimSerializer,
+}
+
+
+class OperationWrapper(NbeSerializer):
+    """Wrapper for operations with opcode and payload structure."""
+    opcode: int
+    payload: Dict[str, Any]
+    
+    _content: Optional[OperationContentSerializer] = None
+
+    @model_validator(mode="after")
+    def parse_payload(self) -> Self:
+        serializer_cls = OPCODE_TO_SERIALIZER.get(self.opcode)
+        if serializer_cls is None:
+            raise ValueError(f"Unknown opcode: {self.opcode}")
+        self._content = serializer_cls.model_validate(self.payload)
+        return self
+
+    def into_operation_content(self) -> NbeContent:
+        if self._content is None:
+            raise ValueError("Content not parsed")
+        return self._content.into_operation_content()
+
+    @classmethod
+    def from_random(cls) -> Self:
+        opcode = choice(list(OpCode))
+        serializer_cls = OPCODE_TO_SERIALIZER[opcode]
+        content = serializer_cls.from_random()
+        return cls.model_validate({
+            "opcode": opcode,
+            "payload": content.model_dump(),
+        })
 
 
 type OperationContentSerializerVariants = Union[

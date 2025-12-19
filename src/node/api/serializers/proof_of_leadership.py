@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Annotated, Optional, Self, Union
 
-from pydantic import Field
+from pydantic import BeforeValidator, Field
 from rusty_results import Option
 
 from core.models import NbeSerializer
@@ -22,13 +22,11 @@ class ProofOfLeadershipSerializer(NbeSerializer, EnforceSubclassFromRandom, ABC)
 
 
 class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
-    entropy_contribution: BytesFromHex = Field(description="Fr integer.")
-    leader_key: BytesFromHex = Field(description="Bytes in Integer Array format.")
-    proof: BytesFromIntArray = Field(
-        description="Bytes in Integer Array format.",
-    )
-    public: Optional[PublicSerializer] = Field(description="Only received if Node is running in dev mode.")
-    voucher_cm: BytesFromHex = Field(description="Hash.")
+    proof: BytesFromIntArray = Field(description="Bytes in Integer Array format (128 bytes).")
+    entropy_contribution: BytesFromHex = Field(description="Fr integer in hex.")
+    leader_key: BytesFromHex = Field(description="Ed25519PublicKey in hex.")
+    voucher_cm: BytesFromHex = Field(description="VoucherCm hash in hex.")
+    public: Optional[PublicSerializer] = Field(default=None, description="Only received if Node is running in dev mode.")
 
     def into_proof_of_leadership(self) -> ProofOfLeadership:
         public = self.public.into_public() if self.public else None
@@ -46,27 +44,21 @@ class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
     def from_random(cls, *, slot: Option[int]) -> Self:
         return cls.model_validate(
             {
+                "proof": list(random_bytes(128)),
                 "entropy_contribution": random_bytes(32).hex(),
                 "leader_key": random_bytes(32).hex(),
-                "proof": list(random_bytes(128)),
-                "public": PublicSerializer.from_random(slot),
                 "voucher_cm": random_bytes(32).hex(),
+                "public": PublicSerializer.from_random(slot),
             }
         )
 
 
 # Fake Variant that never resolves to allow union type checking to work
-# TODO: Remove this when another Variant is added
-from pydantic import BeforeValidator
-
-
 def _always_fail(_):
     raise ValueError("Never matches.")
 
 
 _NeverType = Annotated[object, BeforeValidator(_always_fail)]
-#
-
 
 ProofOfLeadershipVariants = Union[
     Groth16LeaderProofSerializer, _NeverType
