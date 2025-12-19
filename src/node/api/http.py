@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 class HttpNodeApi(NodeApi):
-    ENDPOINT_INFO = "/cryptarchia/info"
-    ENDPOINT_TRANSACTIONS = "/cryptarchia/transactions"
-    ENDPOINT_BLOCKS = "/cryptarchia/blocks"
-    ENDPOINT_BLOCKS_STREAM = "/cryptarchia/blocks/stream"
+    # Paths can't have a leading slash since they are relative to the base URL
+    ENDPOINT_INFO = "cryptarchia/info"
+    ENDPOINT_TRANSACTIONS = "cryptarchia/transactions"
+    ENDPOINT_BLOCKS = "cryptarchia/blocks"
+    ENDPOINT_BLOCKS_STREAM = "cryptarchia/blocks/stream"
 
     def __init__(self, settings: "NBESettings"):
         self.host: str = settings.node_api_host
@@ -38,14 +39,16 @@ class HttpNodeApi(NodeApi):
     def base_url(self) -> str:
         if "/" in self.host:
             host, path = self.host.split("/", 1)
-            path = "/" + path
+            path = f"/{path}"
+            if not path.endswith("/"):
+                path += "/"
         else:
             host = self.host
             path = ""
 
         network_location = f"{host}:{self.port}" if self.port else host
 
-        return urlunparse(
+        url = urlunparse(
             (
                 self.protocol,
                 network_location,
@@ -56,6 +59,7 @@ class HttpNodeApi(NodeApi):
                 "",  # Fragment
             )
         )
+        return url
 
     async def get_health(self) -> HealthSerializer:
         url = urljoin(self.base_url, self.ENDPOINT_INFO)
