@@ -2,11 +2,12 @@ from asyncio import Task, gather
 from typing import Literal, Optional
 
 from fastapi import FastAPI
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.datastructures import State
 
 from constants import DIR_REPO
+from core.authentication import Authentication
 from db.blocks import BlockRepository
 from db.clients import DbClient
 from db.transaction import TransactionRepository
@@ -28,6 +29,18 @@ class NBESettings(BaseSettings):
     node_api_port: int = Field(alias="NBE_NODE_API_PORT", default=18080)
     node_api_timeout: int = Field(alias="NBE_NODE_API_TIMEOUT", default=60)
     node_api_protocol: str = Field(alias="NBE_NODE_API_PROTOCOL", default="http")
+    node_api_auth: Optional[Authentication] = Field(alias="NBE_NODE_API_AUTH", default=None)
+
+    @field_validator("node_api_auth", mode="before")
+    @classmethod
+    def parse_auth(cls, value: str) -> Optional[Authentication]:
+        if value is None:
+            return None
+
+        try:
+            return Authentication.from_string(value)
+        except Exception as e:
+            raise ValueError(f"Invalid NBE_NODE_API_AUTH: {value}") from e
 
 
 class NBEState(State):

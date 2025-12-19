@@ -1,11 +1,13 @@
 import logging
-from typing import TYPE_CHECKING, AsyncIterator, List
+from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 from urllib.parse import urljoin
 
 import httpx
-import requests
 from pydantic import ValidationError
+from rusty_results import Empty, Option, Some
+from third_party import requests
 
+from core.authentication import Authentication
 from node.api.base import NodeApi
 from node.api.serializers.block import BlockSerializer
 from node.api.serializers.health import HealthSerializer
@@ -28,6 +30,9 @@ class HttpNodeApi(NodeApi):
         self.port: int = settings.node_api_port
         self.protocol: str = settings.node_api_protocol or "http"
         self.timeout: int = settings.node_api_timeout or 60
+        self.authentication: Option[Authentication] = (
+            Some(settings.node_api_auth) if settings.node_api_auth else Empty()
+        )
 
     @property
     def base_url(self):
@@ -35,7 +40,7 @@ class HttpNodeApi(NodeApi):
 
     async def get_health(self) -> HealthSerializer:
         url = urljoin(self.base_url, self.ENDPOINT_INFO)
-        response = requests.get(url, timeout=60)
+        response = requests.get(url, auth=self.authentication, timeout=60)
         if response.status_code == 200:
             return HealthSerializer.from_healthy()
         else:
@@ -45,15 +50,15 @@ class HttpNodeApi(NodeApi):
         query_string = f"slot_from={slot_from}&slot_to={slot_to}"
         endpoint = urljoin(self.base_url, self.ENDPOINT_BLOCKS)
         url = f"{endpoint}?{query_string}"
-        response = requests.get(url, timeout=60)
+        response = requests.get(url, auth=self.authentication, timeout=60)
         python_json = response.json()
         blocks = [BlockSerializer.model_validate(item) for item in python_json]
         return blocks
 
     async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
         url = urljoin(self.base_url, self.ENDPOINT_BLOCKS_STREAM)
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
+        async with httpx.AsyncClient(timeout=self.timeout, auth=auth) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()  # TODO: Result
 

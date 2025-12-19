@@ -23,7 +23,7 @@ class ProofOfLeadershipSerializer(NbeSerializer, EnforceSubclassFromRandom, ABC)
 
 class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
     entropy_contribution: BytesFromHex = Field(description="Fr integer.")
-    leader_key: BytesFromIntArray = Field(description="Bytes in Integer Array format.")
+    leader_key: BytesFromHex = Field(description="Bytes in Integer Array format.")
     proof: BytesFromIntArray = Field(
         description="Bytes in Integer Array format.",
     )
@@ -47,7 +47,7 @@ class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
         return cls.model_validate(
             {
                 "entropy_contribution": random_bytes(32).hex(),
-                "leader_key": list(random_bytes(32)),
+                "leader_key": random_bytes(32).hex(),
                 "proof": list(random_bytes(128)),
                 "public": PublicSerializer.from_random(slot),
                 "voucher_cm": random_bytes(32).hex(),
