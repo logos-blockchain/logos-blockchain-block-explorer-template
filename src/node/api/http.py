@@ -1,6 +1,6 @@
 import logging
 from typing import TYPE_CHECKING, AsyncIterator, List, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlunparse
 
 import httpx
 from pydantic import ValidationError
@@ -35,8 +35,27 @@ class HttpNodeApi(NodeApi):
         )
 
     @property
-    def base_url(self):
-        return f"{self.protocol}://{self.host}:{self.port}"
+    def base_url(self) -> str:
+        if "/" in self.host:
+            host, path = self.host.split("/", 1)
+            path = "/" + path
+        else:
+            host = self.host
+            path = ""
+
+        network_location = f"{host}:{self.port}" if self.port else host
+
+        return urlunparse(
+            (
+                self.protocol,
+                network_location,
+                path,
+                # The following are unused but required
+                "",  # Params
+                "",  # Query
+                "",  # Fragment
+            )
+        )
 
     async def get_health(self) -> HealthSerializer:
         url = urljoin(self.base_url, self.ENDPOINT_INFO)
