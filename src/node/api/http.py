@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 from urllib.parse import urljoin, urlunparse
@@ -89,8 +90,6 @@ class HttpNodeApi(NodeApi):
                     if not line:
                         continue
                     try:
-                        import json
-
                         event = json.loads(line)
                         block = BlockSerializer.model_validate(event["block"])
                     except (ValidationError, KeyError, json.JSONDecodeError) as error:
