@@ -24,7 +24,7 @@ class HttpNodeApi(NodeApi):
     ENDPOINT_INFO = "cryptarchia/info"
     ENDPOINT_TRANSACTIONS = "cryptarchia/transactions"
     ENDPOINT_BLOCKS = "cryptarchia/blocks"
-    ENDPOINT_BLOCKS_STREAM = "cryptarchia/blocks/stream"
+    ENDPOINT_BLOCKS_STREAM = "cryptarchia/events/blocks/stream"
 
     def __init__(self, settings: "NBESettings"):
         self.host: str = settings.node_api_host
@@ -89,8 +89,11 @@ class HttpNodeApi(NodeApi):
                     if not line:
                         continue
                     try:
-                        block = BlockSerializer.model_validate_json(line)
-                    except ValidationError as error:
+                        import json
+
+                        event = json.loads(line)
+                        block = BlockSerializer.model_validate(event["block"])
+                    except (ValidationError, KeyError, json.JSONDecodeError) as error:
                         logger.exception(error)
                         continue
 
