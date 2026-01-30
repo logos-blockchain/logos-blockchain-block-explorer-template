@@ -21,4 +21,4 @@ GET {{host}}/cryptarchia/blocks?slot_from=0&slot_to=10
 
 ###
 
-GET {{host}}/cryptarchia/blocks/stream
+GET {{host}}/cryptarchia/events/blocks/stream
