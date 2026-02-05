@@ -3,7 +3,6 @@ from typing import Optional, Union
 
 from core.models import NbeSchema
 from core.types import HexBytes
-from models.header.public import Public
 
 
 class ProofOfLeadershipType(Enum):
@@ -19,7 +18,6 @@ class Groth16ProofOfLeadership(NbeProofOfLeadership):
     entropy_contribution: HexBytes
     leader_key: HexBytes
     proof: HexBytes
-    public: Optional[Public]
     voucher_cm: HexBytes
 
 

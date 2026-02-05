@@ -1,11 +1,10 @@
 from typing import List, Self
 
 from pydantic import Field
-from rusty_results import Option
 
 from core.models import NbeSerializer
 from models.transactions.transaction import Transaction
-from node.api.serializers.fields import BytesFromHex
+from node.api.serializers.fields import BytesFromIntArray
 from node.api.serializers.proof import (
     OperationProofSerializer,
     OperationProofSerializerField,
@@ -15,14 +14,31 @@ from utils.protocols import FromRandom
 from utils.random import random_bytes
 
 
+class Groth16ProofSerializer(NbeSerializer, FromRandom):
+    pi_a: BytesFromIntArray
+    pi_b: BytesFromIntArray
+    pi_c: BytesFromIntArray
+
+    def to_bytes(self) -> bytes:
+        return self.pi_a + self.pi_b + self.pi_c
+
+    @classmethod
+    def from_random(cls) -> Self:
+        return cls.model_validate(
+            {
+                "pi_a": list(random_bytes(32)),
+                "pi_b": list(random_bytes(64)),
+                "pi_c": list(random_bytes(32)),
+            }
+        )
+
+
 class SignedTransactionSerializer(NbeSerializer, FromRandom):
     transaction: TransactionSerializer = Field(alias="mantle_tx", description="Transaction.")
     operations_proofs: List[OperationProofSerializerField] = Field(
         alias="ops_proofs", description="List of OperationProof. Order should match `Self::transaction::operations`."
     )
-    ledger_transaction_proof: BytesFromHex = Field(
-        alias="ledger_tx_proof", description="Hash.", min_length=128, max_length=128
-    )
+    ledger_transaction_proof: Groth16ProofSerializer = Field(alias="ledger_tx_proof", description="Groth16 proof.")
 
     def into_transaction(self) -> Transaction:
         operations_contents = self.transaction.operations_contents
@@ -48,7 +64,7 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
                 "operations": operations,
                 "inputs": ledger_transaction.inputs,
                 "outputs": outputs,
-                "proof": self.ledger_transaction_proof,
+                "proof": self.ledger_transaction_proof.to_bytes(),
                 "execution_gas_price": self.transaction.execution_gas_price,
                 "storage_gas_price": self.transaction.storage_gas_price,
             }
@@ -60,5 +76,5 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
         n = len(transaction.operations_contents)
         operations_proofs = [OperationProofSerializer.from_random() for _ in range(n)]
         return cls.model_validate(
-            {"mantle_tx": transaction, "ops_proofs": operations_proofs, "ledger_tx_proof": random_bytes(128).hex()}
+            {"mantle_tx": transaction, "ops_proofs": operations_proofs, "ledger_tx_proof": Groth16ProofSerializer.from_random()}
         )

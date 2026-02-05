@@ -1,6 +1,6 @@
 import logging
 from asyncio import sleep
-from typing import AsyncIterator, List
+from typing import AsyncIterator, Dict, List
 
 from rusty_results import Empty, Option, Some
 from sqlalchemy import Result, Select
@@ -11,30 +11,135 @@ from db.clients import DbClient
 from models.block import Block
 
 
+logger = logging.getLogger(__name__)
+
+
 def get_latest_statement(limit: int, *, output_ascending: bool = True) -> Select:
-    # Fetch the latest N blocks in descending slot order
-    base = select(Block).order_by(Block.slot.desc(), Block.id.desc()).limit(limit)
+    # Fetch the latest N blocks in descending height order
+    base = select(Block).order_by(Block.height.desc()).limit(limit)
     if not output_ascending:
         return base
 
     # Reorder for output
     inner = base.subquery()
     latest = aliased(Block, inner)
-    return select(latest).options().order_by(latest.slot.asc(), latest.id.asc())  # type: ignore[arg-type]
+    return select(latest).options().order_by(latest.height.asc())  # type: ignore[arg-type]
 
 
 class BlockRepository:
-    """
-    FIXME: Assumes slots are sequential and one block per slot
-    """
-
     def __init__(self, client: DbClient):
         self.client = client
 
-    async def create(self, *blocks: Block) -> None:
+    async def create(self, *blocks: Block, allow_chain_root: bool = False) -> None:
+        """
+        Insert blocks into the database with proper height calculation.
+
+        Args:
+            blocks: Blocks to insert
+            allow_chain_root: If True, allow the first block (by slot) to be a chain root
+                             even if its parent doesn't exist. Used during chain-walk backfills.
+        """
+        if not blocks:
+            return
+
         with self.client.session() as session:
-            session.add_all(list(blocks))
-            session.commit()
+            # Collect all unique parent hashes we need to look up
+            parent_hashes = {block.parent_block for block in blocks}
+
+            # Fetch existing parent blocks to get their heights
+            parent_heights: Dict[bytes, int] = {}
+            if parent_hashes:
+                statement = select(Block).where(Block.hash.in_(parent_hashes))
+                existing_parents = session.exec(statement).all()
+                for parent in existing_parents:
+                    parent_heights[parent.hash] = parent.height
+
+            # Also check if any of the blocks we're inserting are parents of others
+            blocks_by_hash = {block.hash: block for block in blocks}
+
+            # Find the chain root candidate (lowest slot block whose parent isn't in the batch)
+            chain_root_hash = None
+            if allow_chain_root:
+                sorted_blocks = sorted(blocks, key=lambda b: b.slot)
+                for block in sorted_blocks:
+                    if block.parent_block not in blocks_by_hash and block.parent_block not in parent_heights:
+                        chain_root_hash = block.hash
+                        break
+
+            # Handle blocks in batch that depend on each other
+            # Resolve dependencies iteratively, skipping orphans
+            resolved = set()
+            orphans = set()
+            max_iterations = len(blocks) * 2  # Prevent infinite loops
+            iterations = 0
+
+            while iterations < max_iterations:
+                iterations += 1
+                made_progress = False
+
+                for block in blocks:
+                    if block.hash in resolved or block.hash in orphans:
+                        continue
+
+                    if block.parent_block in parent_heights:
+                        # Parent found in DB or already resolved
+                        block.height = parent_heights[block.parent_block] + 1
+                        parent_heights[block.hash] = block.height
+                        resolved.add(block.hash)
+                        made_progress = True
+                    elif block.parent_block in blocks_by_hash:
+                        parent = blocks_by_hash[block.parent_block]
+                        if parent.hash in resolved:
+                            # Parent in same batch and already resolved
+                            block.height = parent.height + 1
+                            parent_heights[block.hash] = block.height
+                            resolved.add(block.hash)
+                            made_progress = True
+                        elif parent.hash in orphans:
+                            # Parent is an orphan, so this block is also an orphan
+                            orphans.add(block.hash)
+                            made_progress = True
+                        # else: parent not yet resolved, try again next iteration
+                    else:
+                        # Parent not found anywhere
+                        if block.slot == 0 or block.hash == chain_root_hash:
+                            # Genesis block or chain root - no parent requirement
+                            block.height = 0
+                            parent_heights[block.hash] = block.height
+                            resolved.add(block.hash)
+                            made_progress = True
+                            if block.hash == chain_root_hash:
+                                logger.info(
+                                    f"Chain root block: hash={block.hash.hex()[:16]}..., "
+                                    f"slot={block.slot}, height=0"
+                                )
+                        else:
+                            # Orphan block - parent doesn't exist
+                            logger.warning(
+                                f"Dropping orphaned block: hash={block.hash.hex()}, "
+                                f"slot={block.slot}, parent={block.parent_block.hex()} (parent not found)"
+                            )
+                            orphans.add(block.hash)
+                            made_progress = True
+
+                # If no progress was made and we still have unresolved blocks, break
+                if not made_progress:
+                    break
+
+            # Check for any blocks that couldn't be resolved (circular dependencies or other issues)
+            unresolved = set(block.hash for block in blocks) - resolved - orphans
+            for block in blocks:
+                if block.hash in unresolved:
+                    logger.warning(
+                        f"Dropping unresolvable block: hash={block.hash.hex()}, "
+                        f"slot={block.slot}, parent={block.parent_block.hex()}"
+                    )
+
+            # Only add resolved blocks
+            blocks_to_add = [block for block in blocks if block.hash in resolved]
+            if blocks_to_add:
+                session.add_all(blocks_to_add)
+                session.commit()
 
     async def get_by_id(self, block_id: int) -> Option[Block]:
         statement = select(Block).where(Block.id == block_id)
@@ -68,7 +173,7 @@ class BlockRepository:
             return b
 
     async def get_earliest(self) -> Option[Block]:
-        statement = select(Block).order_by(Block.slot.asc()).limit(1)
+        statement = select(Block).order_by(Block.height.asc()).limit(1)
 
         with self.client.session() as session:
             results: Result[Block] = session.exec(statement)
@@ -77,25 +182,47 @@ class BlockRepository:
             else:
                 return Empty()
 
+    async def get_paginated(self, page: int, page_size: int) -> tuple[List[Block], int]:
+        """
+        Get blocks with pagination, ordered by height descending (newest first).
+        Returns a tuple of (blocks, total_count).
+        """
+        offset = page * page_size
+
+        with self.client.session() as session:
+            # Get total count
+            from sqlalchemy import func
+            count_statement = select(func.count()).select_from(Block)
+            total_count = session.exec(count_statement).one()
+
+            # Get paginated blocks
+            statement = (
+                select(Block)
+                .order_by(Block.height.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+            blocks = session.exec(statement).all()
+
+        return blocks, total_count
+
     async def updates_stream(
         self, block_from: Option[Block], *, timeout_seconds: int = 1
     ) -> AsyncIterator[List[Block]]:
-        slot_cursor: int = block_from.map(lambda block: block.slot).unwrap_or(0)
-        id_cursor: int = block_from.map(lambda block: block.id + 1).unwrap_or(0)
+        height_cursor: int = block_from.map(lambda block: block.height + 1).unwrap_or(0)
 
         while True:
             statement = (
                 select(Block)
-                .where(Block.slot >= slot_cursor, Block.id >= id_cursor)
-                .order_by(Block.slot.asc(), Block.id.asc())
+                .where(Block.height >= height_cursor)
+                .order_by(Block.height.asc())
             )
 
             with self.client.session() as session:
                 blocks: List[Block] = session.exec(statement).all()
 
             if len(blocks) > 0:
-                slot_cursor = blocks[-1].slot
-                id_cursor = blocks[-1].id + 1
+                height_cursor = blocks[-1].height + 1
                 yield blocks
             else:
                 await sleep(timeout_seconds)

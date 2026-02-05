@@ -10,6 +10,8 @@ const TRANSACTIONS_STREAM = joinUrl(API_PREFIX, 'transactions/stream');
 
 const BLOCK_DETAIL_BY_HASH = (hash) => joinUrl(API_PREFIX, 'blocks', encodeHash(hash));
 const BLOCKS_STREAM = joinUrl(API_PREFIX, 'blocks/stream');
+const BLOCKS_LIST = (page, pageSize) =>
+    `${joinUrl(API_PREFIX, 'blocks/list')}?page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}`;
 
 export const API = {
     HEALTH_ENDPOINT,
@@ -17,6 +19,7 @@ export const API = {
     TRANSACTIONS_STREAM,
     BLOCK_DETAIL_BY_HASH,
     BLOCKS_STREAM,
+    BLOCKS_LIST,
 };
 
 const BLOCK_DETAIL = (hash) => joinUrl('/blocks', encodeHash(hash));

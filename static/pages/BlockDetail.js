@@ -133,6 +133,7 @@ export default function BlockDetailPage({ parameters }) {
     const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
 
     // Prefer new top-level fields; fallback to legacy header.*
+    const height = block?.height ?? null;
     const slot = block?.slot ?? header?.slot ?? null;
     const blockRoot = block?.block_root ?? header?.block_root ?? '';
     const currentBlockHash = block?.hash ?? header?.hash ?? '';
@@ -185,6 +186,7 @@ export default function BlockDetailPage({ parameters }) {
                         h(
                             'div',
                             { style: 'margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;' },
+                            height != null && h('span', { class: 'pill', title: 'Height' }, `Height ${String(height)}`),
                             slot != null && h('span', { class: 'pill', title: 'Slot' }, `Slot ${String(slot)}`),
                         ),
                     ),

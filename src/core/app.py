@@ -51,7 +51,6 @@ class NBEState(State):
     block_repository: BlockRepository
     transaction_repository: TransactionRepository
     subscription_to_updates_handle: Task
-    backfill_handle: Task
 
     @property
     def is_running(self) -> bool:
@@ -64,7 +63,6 @@ class NBEState(State):
     async def _wait_tasks_finished(self):
         await gather(
             self.subscription_to_updates_handle,
-            self.backfill_handle,
             return_exceptions=True,
         )
 

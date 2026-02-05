@@ -18,6 +18,7 @@ def create_v1_router() -> APIRouter:
     router.add_api_route("/transactions/{transaction_hash:str}", transactions.get, methods=["GET"])
 
     router.add_api_route("/blocks/stream", blocks.stream, methods=["GET"])
+    router.add_api_route("/blocks/list", blocks.list_blocks, methods=["GET"])
     router.add_api_route("/blocks/{block_hash:str}", blocks.get, methods=["GET"])
 
     return router
