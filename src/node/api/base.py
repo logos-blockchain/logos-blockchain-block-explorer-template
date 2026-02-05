@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, AsyncIterator, List
+from typing import TYPE_CHECKING, AsyncIterator, Optional
 
 from node.api.serializers.block import BlockSerializer
 from node.api.serializers.health import HealthSerializer
+from node.api.serializers.info import InfoSerializer
 
 if TYPE_CHECKING:
     from core.app import NBESettings
@@ -18,9 +19,13 @@ class NodeApi(ABC):
         pass
 
     @abstractmethod
-    async def get_blocks(self, **kwargs) -> List[BlockSerializer]:
+    async def get_info(self) -> InfoSerializer:
         pass
 
     @abstractmethod
-    async def get_blocks_stream(self) -> AsyncIterator[List[BlockSerializer]]:
+    async def get_block_by_hash(self, block_hash: str) -> Optional[BlockSerializer]:
+        pass
+
+    @abstractmethod
+    async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
         pass

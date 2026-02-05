@@ -1,4 +1,3 @@
-import logging
 from asyncio import sleep
 from typing import AsyncIterator, List
 
@@ -13,11 +12,11 @@ from models.transactions.transaction import Transaction
 
 
 def get_latest_statement(limit: int, *, output_ascending: bool, preload_relationships: bool) -> Select:
-    # Join with Block to order by Block's slot and fetch the latest N transactions in descending order
+    # Join with Block to order by Block's height and fetch the latest N transactions in descending order
     base = (
-        select(Transaction, Block.slot.label("block__slot"), Block.id.label("block__id"))
+        select(Transaction, Block.height.label("block__height"))
         .join(Block, Transaction.block_id == Block.id)
-        .order_by(Block.slot.desc(), Block.id.desc(), Transaction.id.desc())
+        .order_by(Block.height.desc(), Transaction.id.desc())
         .limit(limit)
     )
     if not output_ascending:
@@ -26,7 +25,7 @@ def get_latest_statement(limit: int, *, output_ascending: bool, preload_relation
     # Reorder for output
     inner = base.subquery()
     latest = aliased(Transaction, inner)
-    statement = select(latest).order_by(inner.c.block__slot.asc(), inner.c.block__id.asc(), latest.id.asc())
+    statement = select(latest).order_by(inner.c.block__height.asc(), latest.id.asc())
     if preload_relationships:
         statement = statement.options(selectinload(latest.block))
     return statement
@@ -76,8 +75,7 @@ class TransactionRepository:
     async def updates_stream(
         self, transaction_from: Option[Transaction], *, timeout_seconds: int = 1
     ) -> AsyncIterator[List[Transaction]]:
-        slot_cursor = transaction_from.map(lambda transaction: transaction.block.slot).unwrap_or(0)
-        block_id_cursor = transaction_from.map(lambda transaction: transaction.block.id).unwrap_or(0)
+        height_cursor = transaction_from.map(lambda transaction: transaction.block.height).unwrap_or(0)
         transaction_id_cursor = transaction_from.map(lambda transaction: transaction.id + 1).unwrap_or(0)
 
         while True:
@@ -86,19 +84,17 @@ class TransactionRepository:
                 .options(selectinload(Transaction.block))
                 .join(Block, Transaction.block_id == Block.id)
                 .where(
-                    Block.slot >= slot_cursor,
-                    Block.id >= block_id_cursor,
+                    Block.height >= height_cursor,
                     Transaction.id >= transaction_id_cursor,
                 )
-                .order_by(Block.slot.asc(), Block.id.asc(), Transaction.id.asc())
+                .order_by(Block.height.asc(), Transaction.id.asc())
             )
 
             with self.client.session() as session:
                 transactions: List[Transaction] = session.exec(statement).all()
 
             if len(transactions) > 0:
-                slot_cursor = transactions[-1].block.slot
-                block_id_cursor = transactions[-1].block.id
+                height_cursor = transactions[-1].block.height
                 transaction_id_cursor = transactions[-1].id + 1
                 yield transactions
             else:

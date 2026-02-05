@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import TYPE_CHECKING, AsyncIterator, List, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Optional
 from urllib.parse import urljoin, urlunparse
 
 import httpx
@@ -12,6 +12,7 @@ from core.authentication import Authentication
 from node.api.base import NodeApi
 from node.api.serializers.block import BlockSerializer
 from node.api.serializers.health import HealthSerializer
+from node.api.serializers.info import InfoSerializer
 
 if TYPE_CHECKING:
     from core.app import NBESettings
@@ -23,9 +24,8 @@ logger = logging.getLogger(__name__)
 class HttpNodeApi(NodeApi):
     # Paths can't have a leading slash since they are relative to the base URL
     ENDPOINT_INFO = "cryptarchia/info"
-    ENDPOINT_TRANSACTIONS = "cryptarchia/transactions"
-    ENDPOINT_BLOCKS = "cryptarchia/blocks"
     ENDPOINT_BLOCKS_STREAM = "cryptarchia/events/blocks/stream"
+    ENDPOINT_BLOCK_BY_HASH = "storage/block"
 
     def __init__(self, settings: "NBESettings"):
         self.host: str = settings.node_api_host
@@ -70,19 +70,35 @@ class HttpNodeApi(NodeApi):
         else:
             return HealthSerializer.from_unhealthy()
 
-    async def get_blocks(self, slot_from: int, slot_to: int) -> List[BlockSerializer]:
-        query_string = f"slot_from={slot_from}&slot_to={slot_to}"
-        endpoint = urljoin(self.base_url, self.ENDPOINT_BLOCKS)
-        url = f"{endpoint}?{query_string}"
+    async def get_info(self) -> InfoSerializer:
+        url = urljoin(self.base_url, self.ENDPOINT_INFO)
         response = requests.get(url, auth=self.authentication, timeout=60)
-        python_json = response.json()
-        blocks = [BlockSerializer.model_validate(item) for item in python_json]
-        return blocks
+        response.raise_for_status()
+        return InfoSerializer.model_validate(response.json())
+
+    async def get_block_by_hash(self, block_hash: str) -> Optional[BlockSerializer]:
+        url = urljoin(self.base_url, f"{self.ENDPOINT_BLOCK_BY_HASH}/{block_hash}")
+        response = requests.get(url, auth=self.authentication, timeout=60)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        json_data = response.json()
+        if json_data is None:
+            logger.warning(f"Block {block_hash} returned null from API")
+            return None
+        block = BlockSerializer.model_validate(json_data)
+        # The storage endpoint doesn't include the block hash in the response,
+        # so we set it from the URL parameter
+        if not block.header.hash:
+            block.header.hash = bytes.fromhex(block_hash)
+        return block
 
     async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
         url = urljoin(self.base_url, self.ENDPOINT_BLOCKS_STREAM)
         auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
-        async with httpx.AsyncClient(timeout=self.timeout, auth=auth) as client:
+        # Use no read timeout for streaming - blocks may arrive infrequently
+        stream_timeout = httpx.Timeout(connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
+        async with httpx.AsyncClient(timeout=stream_timeout, auth=auth) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()  # TODO: Result
 

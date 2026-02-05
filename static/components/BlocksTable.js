@@ -15,6 +15,7 @@ const normalize = (raw) => {
 
     return {
         id: Number(raw.id ?? 0),
+        height: Number(raw.height ?? 0),
         slot: Number(raw.slot ?? header?.slot ?? 0),
         hash: raw.hash ?? header?.hash ?? '',
         parent: raw.parent_block_hash ?? header?.parent_block ?? raw.parent_block ?? '',
@@ -146,6 +147,8 @@ export default function BlocksTable() {
                     shortenHex(b.hash),
                 ),
             ),
+            // Height
+            h('td', null, h('span', { class: 'mono' }, String(b.height))),
             // Slot
             h('td', null, h('span', { class: 'mono' }, String(b.slot))),
             // Parent
@@ -177,6 +180,7 @@ export default function BlocksTable() {
         return h(
             'tr',
             { key: `ph-${idx}`, class: 'ph' },
+            h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
@@ -244,11 +248,12 @@ export default function BlocksTable() {
                 h(
                     'colgroup',
                     null,
-                    h('col', { style: 'width:240px' }), // Hash
-                    h('col', { style: 'width:90px' }), // Slot
-                    h('col', { style: 'width:240px' }), // Parent
-                    h('col', { style: 'width:240px' }), // Block Root
-                    h('col', { style: 'width:120px' }), // Transactions
+                    h('col', { style: 'width:200px' }), // Hash
+                    h('col', { style: 'width:70px' }), // Height
+                    h('col', { style: 'width:80px' }), // Slot
+                    h('col', { style: 'width:200px' }), // Parent
+                    h('col', { style: 'width:200px' }), // Block Root
+                    h('col', { style: 'width:100px' }), // Transactions
                 ),
                 h(
                     'thead',
@@ -257,6 +262,7 @@ export default function BlocksTable() {
                         'tr',
                         null,
                         h('th', null, 'Hash'),
+                        h('th', null, 'Height'),
                         h('th', null, 'Slot'),
                         h('th', null, 'Parent'),
                         h('th', null, 'Block Root'),

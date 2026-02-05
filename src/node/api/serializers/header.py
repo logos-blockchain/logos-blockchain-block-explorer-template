@@ -15,7 +15,7 @@ from utils.random import random_hash
 
 
 class HeaderSerializer(NbeSerializer, FromRandom):
-    hash: BytesFromHex = Field(alias="id", description="Hash id in hex format.")
+    hash: BytesFromHex = Field(default=b"", alias="id", description="Hash id in hex format.")
     parent_block: BytesFromHex = Field(description="Hash in hex format.")
     slot: int = Field(description="Integer in u64 format.")
     block_root: BytesFromHex = Field(description="Hash in hex format.")

@@ -17,7 +17,7 @@ function AppShell(props) {
     return h(
         Fragment,
         null,
-        h('header', null, h('h1', null, 'Nomos Block Explorer'), h(HealthPill, null)),
+        h('header', null, h('h1', null, 'λ Blockchain Block Explorer'), h(HealthPill, null)),
         props.children,
     );
 }

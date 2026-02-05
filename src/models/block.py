@@ -24,6 +24,7 @@ class Block(TimestampedModel, table=True):
     hash: HexBytes = Field(nullable=False, unique=True)
     parent_block: HexBytes = Field(nullable=False)
     slot: int = Field(nullable=False)
+    height: int = Field(nullable=False, default=0)
     block_root: HexBytes = Field(nullable=False)
     proof_of_leadership: ProofOfLeadership = Field(
         sa_column=Column(PydanticJsonColumn(ProofOfLeadership), nullable=False)
