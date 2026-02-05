@@ -77,8 +77,13 @@ class HttpNodeApi(NodeApi):
         return InfoSerializer.model_validate(response.json())
 
     async def get_block_by_hash(self, block_hash: str) -> Optional[BlockSerializer]:
-        url = urljoin(self.base_url, f"{self.ENDPOINT_BLOCK_BY_HASH}/{block_hash}")
-        response = requests.get(url, auth=self.authentication, timeout=60)
+        url = urljoin(self.base_url, self.ENDPOINT_BLOCK_BY_HASH)
+        response = requests.post(
+            url,
+            auth=self.authentication,
+            timeout=60,
+            json=block_hash,
+        )
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -88,7 +93,7 @@ class HttpNodeApi(NodeApi):
             return None
         block = BlockSerializer.model_validate(json_data)
         # The storage endpoint doesn't include the block hash in the response,
-        # so we set it from the URL parameter
+        # so we set it from the request body
         if not block.header.hash:
             block.header.hash = bytes.fromhex(block_hash)
         return block
