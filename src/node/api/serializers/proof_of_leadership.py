@@ -10,7 +10,6 @@ from models.header.proof_of_leadership import (
     ProofOfLeadership,
 )
 from node.api.serializers.fields import BytesFromHex, BytesFromIntArray
-from node.api.serializers.public import PublicSerializer
 from utils.protocols import EnforceSubclassFromRandom
 from utils.random import random_bytes
 
@@ -27,17 +26,14 @@ class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
     proof: BytesFromIntArray = Field(
         description="Bytes in Integer Array format.",
     )
-    public: Optional[PublicSerializer] = Field(description="Only received if Node is running in dev mode.")
     voucher_cm: BytesFromHex = Field(description="Hash.")
 
     def into_proof_of_leadership(self) -> ProofOfLeadership:
-        public = self.public.into_public() if self.public else None
         return Groth16ProofOfLeadership.model_validate(
             {
                 "entropy_contribution": self.entropy_contribution,
                 "leader_key": self.leader_key,
                 "proof": self.proof,
-                "public": public,
                 "voucher_cm": self.voucher_cm,
             }
         )
@@ -49,7 +45,6 @@ class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
                 "entropy_contribution": random_bytes(32).hex(),
                 "leader_key": random_bytes(32).hex(),
                 "proof": list(random_bytes(128)),
-                "public": PublicSerializer.from_random(slot),
                 "voucher_cm": random_bytes(32).hex(),
             }
         )

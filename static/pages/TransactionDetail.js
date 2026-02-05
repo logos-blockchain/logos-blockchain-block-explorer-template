@@ -218,7 +218,7 @@ function InputsTable({ inputs }) {
                 h('col', { style: 'width:80px' }), // #
                 h('col', null), // Value
             ),
-            h('thead', null, h('tr', null, h('th', { style: 'text-align:center;' }, '#'), h('th', null, 'Value'))),
+            h('thead', null, h('tr', null, h('th', { style: 'text-align:center;' }, '#'), h('th', null, 'Note ID'))),
             h(
                 'tbody',
                 null,
@@ -299,7 +299,6 @@ function OutputsTable({ outputs }) {
 function Ledger({ ledger }) {
     const inputs = Array.isArray(ledger?.inputs) ? ledger.inputs : [];
     const outputs = Array.isArray(ledger?.outputs) ? ledger.outputs : [];
-    const totalInputValue = inputs.reduce((s, v) => s + toNumber(v), 0);
     const totalOutputValue = toNumber(ledger?.totalOutputValue);
 
     return h(
@@ -318,11 +317,6 @@ function Ledger({ ledger }) {
                     { style: 'display:flex; alignItems:center; gap:8px;' },
                     h('b', null, 'Inputs'),
                     h('span', { class: 'pill' }, String(inputs.length)),
-                    h(
-                        'span',
-                        { class: 'amount', style: 'margin-left:auto;' },
-                        `Total: ${toLocaleNum(totalInputValue)}`,
-                    ),
                 ),
                 h(InputsTable, { inputs }),
             ),

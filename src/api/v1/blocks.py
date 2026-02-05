@@ -15,6 +15,23 @@ if TYPE_CHECKING:
     from core.app import NBE
 
 
+async def list_blocks(
+    request: NBERequest,
+    page: int = Query(0, ge=0),
+    page_size: int = Query(10, ge=1, le=100, alias="page-size"),
+) -> Response:
+    blocks, total_count = await request.app.state.block_repository.get_paginated(page, page_size)
+    total_pages = (total_count + page_size - 1) // page_size  # ceiling division
+
+    return JSONResponse({
+        "blocks": [BlockRead.from_block(block).model_dump(mode="json") for block in blocks],
+        "page": page,
+        "page_size": page_size,
+        "total_count": total_count,
+        "total_pages": total_pages,
+    })
+
+
 async def _get_blocks_stream_serialized(app: "NBE", block_from: Option[Block]) -> AsyncIterator[List[BlockRead]]:
     _stream = app.state.block_repository.updates_stream(block_from)
     async for blocks in _stream:

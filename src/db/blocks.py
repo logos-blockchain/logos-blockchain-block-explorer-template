@@ -77,6 +77,30 @@ class BlockRepository:
             else:
                 return Empty()
 
+    async def get_paginated(self, page: int, page_size: int) -> tuple[List[Block], int]:
+        """
+        Get blocks with pagination, ordered by slot descending (newest first).
+        Returns a tuple of (blocks, total_count).
+        """
+        offset = page * page_size
+
+        with self.client.session() as session:
+            # Get total count
+            from sqlalchemy import func
+            count_statement = select(func.count()).select_from(Block)
+            total_count = session.exec(count_statement).one()
+
+            # Get paginated blocks
+            statement = (
+                select(Block)
+                .order_by(Block.slot.desc(), Block.id.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+            blocks = session.exec(statement).all()
+
+        return blocks, total_count
+
     async def updates_stream(
         self, block_from: Option[Block], *, timeout_seconds: int = 1
     ) -> AsyncIterator[List[Block]]:

@@ -4,14 +4,14 @@ from typing import List, Self
 from pydantic import Field
 
 from core.models import NbeSerializer
-from node.api.serializers.fields import BytesFromIntArray
+from node.api.serializers.fields import BytesFromHex
 from node.api.serializers.note import NoteSerializer
 from utils.protocols import FromRandom
 from utils.random import random_bytes
 
 
 class LedgerTransactionSerializer(NbeSerializer, FromRandom):
-    inputs: List[BytesFromIntArray] = Field(description="Fr integer.")
+    inputs: List[BytesFromHex] = Field(description="Fr integer.")
     outputs: List[NoteSerializer]
 
     @classmethod
@@ -21,7 +21,7 @@ class LedgerTransactionSerializer(NbeSerializer, FromRandom):
 
         return cls.model_validate(
             {
-                "inputs": [list(random_bytes(2048)) for _ in range(n_inputs)],
+                "inputs": [random_bytes(32).hex() for _ in range(n_inputs)],
                 "outputs": [NoteSerializer.from_random() for _ in range(n_outputs)],
             }
         )
