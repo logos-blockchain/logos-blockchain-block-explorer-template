@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 
 from core.models import NbeSchema
 from core.types import HexBytes
@@ -11,21 +12,21 @@ class SignatureType(Enum):
 
 
 class NbeSignature(NbeSchema):
-    type: SignatureType
+    type: str
 
 
 class Ed25519Signature(NbeSignature):
-    type: SignatureType = SignatureType.ED25519
+    type: Literal["Ed25519"] = "Ed25519"
     signature: HexBytes
 
 
 class ZkSignature(NbeSignature):
-    type: SignatureType = SignatureType.ZK
+    type: Literal["Zk"] = "Zk"
     signature: HexBytes
 
 
 class ZkAndEd25519Signature(NbeSignature):
-    type: SignatureType = SignatureType.ZK_AND_ED25519
+    type: Literal["ZkAndEd25519"] = "ZkAndEd25519"
     zk_signature: HexBytes
     ed25519_signature: HexBytes
 

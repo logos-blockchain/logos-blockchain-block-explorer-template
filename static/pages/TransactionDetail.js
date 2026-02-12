@@ -296,6 +296,142 @@ function OutputsTable({ outputs }) {
     );
 }
 
+// ————— operations detail —————
+
+/** Try to decode a hex string as UTF-8. Returns the decoded string or null on failure. */
+function tryDecodeUtf8Hex(hex) {
+    if (typeof hex !== 'string' || hex.length === 0 || hex.length % 2 !== 0) return null;
+    try {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            const b = parseInt(hex.substring(i, i + 2), 16);
+            if (Number.isNaN(b)) return null;
+            bytes[i / 2] = b;
+        }
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        // Only accept if it contains at least one printable non-control character
+        if (/[\x20-\x7e]/.test(text)) return text;
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/** Human-friendly label for a content field key */
+const fieldLabel = (key) =>
+    key
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Render the value of a single content field */
+function FieldValue({ value }) {
+    if (value == null) return h('span', { class: 'mono', style: 'color:var(--muted)' }, 'null');
+    if (typeof value === 'number') return h('span', { class: 'mono' }, toLocaleNum(value));
+    if (typeof value === 'string') {
+        // hex strings
+        if (value.length > 24) {
+            return h(
+                'span',
+                { style: 'display:flex; align-items:center; gap:6px;' },
+                h('span', { class: 'mono', style: 'overflow-wrap:anywhere; word-break:break-all;' }, value),
+                h(CopyPill, { text: value }),
+            );
+        }
+        return h('span', { class: 'mono' }, value);
+    }
+    if (Array.isArray(value)) {
+        return h(
+            'div',
+            { style: 'display:flex; flex-direction:column; gap:4px;' },
+            ...value.map((item, i) => h('div', { key: i }, h(FieldValue, { value: renderBytes(item) }))),
+        );
+    }
+    return h('span', { class: 'mono' }, renderBytes(value));
+}
+
+function InscriptionValue({ value }) {
+    const decoded = tryDecodeUtf8Hex(value);
+    if (decoded != null) {
+        return h(
+            'span',
+            { style: 'display:flex; align-items:center; gap:6px;' },
+            h('span', { style: 'overflow-wrap:anywhere; word-break:break-word;' }, decoded),
+            h(CopyPill, { text: decoded }),
+        );
+    }
+    return h(FieldValue, { value });
+}
+
+function OperationContent({ content }) {
+    // Get all fields except "type"
+    const entries = Object.entries(content).filter(([k]) => k !== 'type');
+    if (!entries.length) return h('div', { style: 'color:var(--muted)' }, 'No fields');
+
+    return h(
+        'div',
+        { style: 'display:grid; grid-template-columns:auto 1fr; gap:6px 12px; align-items:baseline;' },
+        ...entries.flatMap(([key, value]) => [
+            h('span', { style: 'color:var(--muted); font-size:13px; white-space:nowrap;' }, fieldLabel(key)),
+            key === 'inscription' ? h(InscriptionValue, { value }) : h(FieldValue, { value }),
+        ]),
+    );
+}
+
+function OperationProof({ proof }) {
+    if (!proof) return null;
+    const proofType = proof.type ?? 'Unknown';
+    const entries = Object.entries(proof).filter(([k]) => k !== 'type');
+
+    return h(
+        'div',
+        { style: 'margin-top:8px; padding-top:8px; border-top:1px solid #1f2435;' },
+        h('span', { style: 'color:var(--muted); font-size:12px;' }, `Proof: ${proofType}`),
+        entries.length > 0 &&
+            h(
+                'div',
+                { style: 'margin-top:4px; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; align-items:baseline;' },
+                ...entries.flatMap(([key, value]) => [
+                    h('span', { style: 'color:var(--muted); font-size:12px; white-space:nowrap;' }, fieldLabel(key)),
+                    h('span', { class: 'mono', style: 'font-size:12px; overflow-wrap:anywhere; word-break:break-all;' }, renderBytes(value)),
+                ]),
+            ),
+    );
+}
+
+function OperationCard({ op, index }) {
+    const content = op?.content ?? op;
+    const proof = op?.proof ?? null;
+    const type = content?.type ?? opLabel(op);
+
+    return h(
+        'div',
+        { style: 'background:#0e1320; border:1px solid #1f2435; border-radius:8px; padding:12px 14px;' },
+        h(
+            'div',
+            { style: 'display:flex; align-items:center; gap:8px; margin-bottom:10px;' },
+            h('span', { class: 'pill', style: 'font-size:11px;' }, `#${index}`),
+            h('span', { class: 'pill', style: 'background:rgba(63,185,80,0.12); color:var(--accent);' }, type),
+        ),
+        h(OperationContent, { content }),
+        h(OperationProof, { proof }),
+    );
+}
+
+function Operations({ operations }) {
+    const ops = Array.isArray(operations) ? operations : [];
+    if (!ops.length) return null;
+
+    return h(
+        SectionCard,
+        { title: `Operations (${ops.length})` },
+        h(
+            'div',
+            { style: 'display:flex; flex-direction:column; gap:12px;' },
+            ...ops.map((op, i) => h(OperationCard, { key: i, op, index: i })),
+        ),
+    );
+}
+
 function Ledger({ ledger }) {
     const inputs = Array.isArray(ledger?.inputs) ? ledger.inputs : [];
     const outputs = Array.isArray(ledger?.outputs) ? ledger.outputs : [];
@@ -418,6 +554,6 @@ export default function TransactionDetail({ parameters }) {
         !tx && !err && h('p', null, 'Loading…'),
 
         // Success
-        tx && h(Fragment, null, h(Summary, { tx }), h(Ledger, { ledger: tx.ledger })),
+        tx && h(Fragment, null, h(Summary, { tx }), h(Operations, { operations: tx.operations }), h(Ledger, { ledger: tx.ledger })),
     );
 }

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from core.models import NbeSchema
 from core.types import HexBytes
@@ -16,11 +16,11 @@ class ContentType(Enum):
 
 
 class NbeContent(NbeSchema):
-    type: ContentType
+    type: str
 
 
 class ChannelInscribe(NbeContent):
-    type: ContentType = ContentType.CHANNEL_INSCRIBE
+    type: Literal["ChannelInscribe"] = "ChannelInscribe"
     channel_id: HexBytes
     inscription: HexBytes
     parent: HexBytes
@@ -28,7 +28,7 @@ class ChannelInscribe(NbeContent):
 
 
 class ChannelBlob(NbeContent):
-    type: ContentType = ContentType.CHANNEL_BLOB
+    type: Literal["ChannelBlob"] = "ChannelBlob"
     channel: HexBytes
     blob: HexBytes
     blob_size: int
@@ -38,7 +38,7 @@ class ChannelBlob(NbeContent):
 
 
 class ChannelSetKeys(NbeContent):
-    type: ContentType = ContentType.CHANNEL_SET_KEYS
+    type: Literal["ChannelSetKeys"] = "ChannelSetKeys"
     channel: HexBytes
     keys: List[bytes]
 
@@ -49,7 +49,7 @@ class SDPDeclareServiceType(Enum):
 
 
 class SDPDeclare(NbeContent):
-    type: ContentType = ContentType.SDP_DECLARE
+    type: Literal["SDPDeclare"] = "SDPDeclare"
     service_type: SDPDeclareServiceType
     locators: List[bytes]
     provider_id: HexBytes
@@ -58,20 +58,20 @@ class SDPDeclare(NbeContent):
 
 
 class SDPWithdraw(NbeContent):
-    type: ContentType = ContentType.SDP_WITHDRAW
+    type: Literal["SDPWithdraw"] = "SDPWithdraw"
     declaration_id: HexBytes
     nonce: HexBytes
 
 
 class SDPActive(NbeContent):
-    type: ContentType = ContentType.SDP_ACTIVE
+    type: Literal["SDPActive"] = "SDPActive"
     declaration_id: HexBytes
     nonce: HexBytes
     metadata: Optional[bytes]
 
 
 class LeaderClaim(NbeContent):
-    type: ContentType = ContentType.LEADER_CLAIM
+    type: Literal["LeaderClaim"] = "LeaderClaim"
     rewards_root: HexBytes
     voucher_nullifier: HexBytes
     mantle_tx_hash: HexBytes

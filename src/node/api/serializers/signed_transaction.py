@@ -1,3 +1,5 @@
+import hashlib
+import json
 from typing import List, Self
 
 from pydantic import Field
@@ -40,6 +42,11 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
     )
     ledger_transaction_proof: Groth16ProofSerializer = Field(alias="ledger_tx_proof", description="Groth16 proof.")
 
+    def _compute_hash(self) -> bytes:
+        data = self.transaction.model_dump(mode="json")
+        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode()).digest()
+
     def into_transaction(self) -> Transaction:
         operations_contents = self.transaction.operations_contents
         if len(operations_contents) != len(self.operations_proofs):
@@ -60,7 +67,7 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
 
         return Transaction.model_validate(
             {
-                "hash": self.transaction.hash,
+                "hash": self._compute_hash(),
                 "operations": operations,
                 "inputs": ledger_transaction.inputs,
                 "outputs": outputs,

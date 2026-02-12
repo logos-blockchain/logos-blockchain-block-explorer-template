@@ -26,7 +26,7 @@ class NBESettings(BaseSettings):
     node_manager: Literal["docker", "noop"] = Field(alias="NBE_NODE_MANAGER", default="noop")
 
     node_api_host: str = Field(alias="NBE_NODE_API_HOST", default="127.0.0.1")
-    node_api_port: int = Field(alias="NBE_NODE_API_PORT", default=18080)
+    node_api_port: int = Field(alias="NBE_NODE_API_PORT", default=8080)
     node_api_timeout: int = Field(alias="NBE_NODE_API_TIMEOUT", default=60)
     node_api_protocol: str = Field(alias="NBE_NODE_API_PROTOCOL", default="http")
     node_api_auth: Optional[Authentication] = Field(alias="NBE_NODE_API_AUTH", default=None)

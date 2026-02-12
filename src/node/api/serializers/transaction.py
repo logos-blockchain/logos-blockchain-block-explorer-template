@@ -4,7 +4,6 @@ from typing import List, Self
 from pydantic import Field
 
 from core.models import NbeSerializer
-from node.api.serializers.fields import BytesFromHex
 from node.api.serializers.ledger_transaction import LedgerTransactionSerializer
 from node.api.serializers.operation import (
     OperationContentSerializer,
@@ -15,7 +14,6 @@ from utils.random import random_bytes
 
 
 class TransactionSerializer(NbeSerializer, FromRandom):
-    hash: BytesFromHex = Field(description="Hash id in hex format.")
     operations_contents: List[OperationContentSerializerField] = Field(alias="ops")
     ledger_transaction: LedgerTransactionSerializer = Field(alias="ledger_tx")
     execution_gas_price: int = Field(description="Integer in u64 format.")
@@ -27,7 +25,6 @@ class TransactionSerializer(NbeSerializer, FromRandom):
         operations_contents = [OperationContentSerializer.from_random() for _ in range(n)]
         return cls.model_validate(
             {
-                "hash": random_bytes(32).hex(),
                 "ops": operations_contents,
                 "ledger_tx": LedgerTransactionSerializer.from_random(),
                 "execution_gas_price": randint(1, 10_000),

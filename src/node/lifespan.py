@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from asyncio import create_task
 from contextlib import asynccontextmanager
@@ -20,16 +21,24 @@ async def backfill_to_lib(app: "NBE") -> None:
     """
     Fetch the LIB (Last Irreversible Block) from the node and backfill by walking the chain backwards.
     This traverses parent links instead of querying by slot range, which handles pruned/missing blocks.
+    Retries indefinitely with exponential backoff on failure.
     """
-    try:
-        info = await app.state.node_api.get_info()
-        logger.info(f"Node info: LIB={info.lib}, tip={info.tip}, slot={info.slot}, height={info.height}")
+    delay = 1.0
+    max_delay = 60.0
 
-        await backfill_chain_from_hash(app, info.lib)
+    while True:
+        try:
+            info = await app.state.node_api.get_info()
+            logger.info(f"Node info: LIB={info.lib}, tip={info.tip}, slot={info.slot}, height={info.height}")
 
-    except Exception as error:
-        logger.exception(f"Error during initial backfill to LIB: {error}")
-        # Don't raise - we can still try to subscribe to new blocks
+            await backfill_chain_from_hash(app, info.lib)
+            return
+
+        except Exception as error:
+            logger.exception(f"Error during initial backfill to LIB: {error}")
+            logger.info(f"Retrying backfill in {delay:.0f}s...")
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, max_delay)
 
 
 async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Annotated, Self, Union
+from typing import Annotated, Any, Self, Union
 
-from pydantic import Field, RootModel
+from pydantic import BeforeValidator, Field, RootModel
 
 from core.models import NbeSerializer
 from models.transactions.operations.proofs import (
@@ -10,7 +10,7 @@ from models.transactions.operations.proofs import (
     ZkAndEd25519Signature,
     ZkSignature,
 )
-from node.api.serializers.fields import BytesFromHex
+from node.api.serializers.fields import BytesFromIntArray
 from utils.protocols import EnforceSubclassFromRandom
 from utils.random import random_bytes
 
@@ -21,11 +21,8 @@ class OperationProofSerializer(EnforceSubclassFromRandom, ABC):
         raise NotImplementedError
 
 
-# TODO: Differentiate between Ed25519SignatureSerializer and ZkSignatureSerializer
-
-
-class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[str]):
-    root: BytesFromHex
+class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[bytes]):
+    root: BytesFromIntArray
 
     def into_operation_proof(self) -> NbeSignature:
         return Ed25519Signature.model_validate(
@@ -36,11 +33,11 @@ class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[str]):
 
     @classmethod
     def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate(random_bytes(64).hex())
+        return cls.model_validate(list(random_bytes(64)))
 
 
-class ZkSignatureSerializer(OperationProofSerializer, RootModel[str]):
-    root: BytesFromHex
+class ZkSignatureSerializer(OperationProofSerializer, RootModel[bytes]):
+    root: BytesFromIntArray
 
     def into_operation_proof(self) -> NbeSignature:
         return ZkSignature.model_validate(
@@ -51,12 +48,12 @@ class ZkSignatureSerializer(OperationProofSerializer, RootModel[str]):
 
     @classmethod
     def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate(random_bytes(32).hex())
+        return cls.model_validate(list(random_bytes(32)))
 
 
 class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
-    zk_signature: BytesFromHex = Field(alias="zk_sig")
-    ed25519_signature: BytesFromHex = Field(alias="ed25519_sig")
+    zk_signature: BytesFromIntArray = Field(alias="zk_sig")
+    ed25519_signature: BytesFromIntArray = Field(alias="ed25519_sig")
 
     def into_operation_proof(self) -> NbeSignature:
         return ZkAndEd25519Signature.model_validate(
@@ -70,13 +67,33 @@ class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
     def from_random(cls, *args, **kwargs) -> Self:
         return ZkAndEd25519SignaturesSerializer.model_validate(
             {
-                "zk_sig": random_bytes(32).hex(),
-                "ed25519_sig": random_bytes(32).hex(),
+                "zk_sig": list(random_bytes(32)),
+                "ed25519_sig": list(random_bytes(64)),
             }
         )
+
+
+PROOF_TAG_TO_SERIALIZER = {
+    "Ed25519Sig": Ed25519SignatureSerializer,
+    "ZkSig": ZkSignatureSerializer,
+    "ZkAndEd25519Sigs": ZkAndEd25519SignaturesSerializer,
+}
+
+
+def _parse_proof(data: Any) -> OperationProofSerializer:
+    if isinstance(data, OperationProofSerializer):
+        return data
+    if isinstance(data, dict):
+        for tag, serializer_class in PROOF_TAG_TO_SERIALIZER.items():
+            if tag in data:
+                return serializer_class.model_validate(data[tag])
+    return data
 
 
 OperationProofSerializerVariants = Union[
     Ed25519SignatureSerializer, ZkSignatureSerializer, ZkAndEd25519SignaturesSerializer
 ]
-OperationProofSerializerField = Annotated[OperationProofSerializerVariants, Field(union_mode="left_to_right")]
+OperationProofSerializerField = Annotated[
+    OperationProofSerializerVariants,
+    BeforeValidator(_parse_proof),
+]

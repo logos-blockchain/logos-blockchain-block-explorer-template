@@ -45,26 +45,62 @@ const toNumber = (v) => {
     return 0;
 };
 
-const opLabel = (op) => {
-    if (op == null) return 'op';
-    if (typeof op === 'string' || typeof op === 'number') return String(op);
-    if (typeof op !== 'object') return String(op);
-    if (typeof op.type === 'string') return op.type;
-    if (typeof op.kind === 'string') return op.kind;
-    if (op.content) {
-        if (typeof op.content.type === 'string') return op.content.type;
-        if (typeof op.content.kind === 'string') return op.content.kind;
+function tryDecodeUtf8Hex(hex) {
+    if (typeof hex !== 'string' || hex.length === 0 || hex.length % 2 !== 0) return null;
+    try {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            const b = parseInt(hex.substring(i, i + 2), 16);
+            if (Number.isNaN(b)) return null;
+            bytes[i / 2] = b;
+        }
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        if (/[\x20-\x7e]/.test(text)) return text;
+        return null;
+    } catch {
+        return null;
     }
-    const keys = Object.keys(op);
-    return keys.length ? keys[0] : 'op';
-};
+}
+
+function opPreview(op) {
+    const content = op?.content ?? op;
+    const type = content?.type ?? (typeof op === 'string' ? op : 'op');
+
+    if (type === 'ChannelInscribe' && content) {
+        const chanShort = typeof content.channel_id === 'string' ? content.channel_id.slice(0, 8) : '?';
+        let inscPreview = '';
+        if (typeof content.inscription === 'string') {
+            const decoded = tryDecodeUtf8Hex(content.inscription);
+            if (decoded != null) {
+                inscPreview = decoded.length > 20 ? decoded.slice(0, 20) + '\u2026' : decoded;
+            } else {
+                inscPreview = content.inscription.slice(0, 12) + '\u2026';
+            }
+        }
+        return `${type}(${chanShort}\u2026, ${inscPreview})`;
+    }
+
+    if (type === 'ChannelBlob' && content) {
+        const chanShort = typeof content.channel === 'string' ? content.channel.slice(0, 8) : '?';
+        const size = content.blob_size != null ? `${content.blob_size}B` : '?';
+        return `${type}(${chanShort}\u2026, ${size})`;
+    }
+
+    if (type === 'ChannelSetKeys' && content) {
+        const chanShort = typeof content.channel === 'string' ? content.channel.slice(0, 8) : '?';
+        const nKeys = Array.isArray(content.keys) ? content.keys.length : '?';
+        return `${type}(${chanShort}\u2026, ${nKeys} keys)`;
+    }
+
+    return type;
+}
 
 function formatOperationsPreview(ops) {
     if (!ops?.length) return '—';
-    const labels = ops.map(opLabel);
-    if (labels.length <= OPERATIONS_PREVIEW_LIMIT) return labels.join(', ');
-    const head = labels.slice(0, OPERATIONS_PREVIEW_LIMIT).join(', ');
-    const remainder = labels.length - OPERATIONS_PREVIEW_LIMIT;
+    const previews = ops.map(opPreview);
+    if (previews.length <= OPERATIONS_PREVIEW_LIMIT) return previews.join(', ');
+    const head = previews.slice(0, OPERATIONS_PREVIEW_LIMIT).join(', ');
+    const remainder = previews.length - OPERATIONS_PREVIEW_LIMIT;
     return `${head} +${remainder}`;
 }
 
@@ -98,22 +134,18 @@ function buildTransactionRow(tx) {
 
     // Operations (preview)
     const tdOps = document.createElement('td');
+    tdOps.style.whiteSpace = 'normal';
+    tdOps.style.lineHeight = '1.4';
     const preview = formatOperationsPreview(tx.operations);
-    tdOps.appendChild(
-        createSpan('', preview, Array.isArray(tx.operations) ? tx.operations.map(opLabel).join(', ') : ''),
-    );
+    const fullPreview = Array.isArray(tx.operations) ? tx.operations.map(opPreview).join(', ') : '';
+    tdOps.appendChild(createSpan('', preview, fullPreview));
 
     // Outputs (count / total)
     const tdOut = document.createElement('td');
     tdOut.className = 'amount';
     tdOut.textContent = `${tx.numberOfOutputs} / ${tx.totalOutputValue.toLocaleString(undefined, { maximumFractionDigits: 8 })}`;
 
-    // Gas (execution / storage)
-    const tdGas = document.createElement('td');
-    tdGas.className = 'mono';
-    tdGas.textContent = `${tx.executionGasPrice.toLocaleString()} / ${tx.storageGasPrice.toLocaleString()}`;
-
-    tr.append(tdId, tdOps, tdOut, tdGas);
+    tr.append(tdId, tdOps, tdOut);
     return tr;
 }
 
@@ -128,8 +160,8 @@ export default function TransactionsTable() {
         const body = bodyRef.current;
         const counter = countRef.current;
 
-        // 4 columns: Hash | Operations | Outputs | Gas
-        ensureFixedRowCount(body, 4, TABLE_SIZE);
+        // 3 columns: Hash | Operations | Outputs
+        ensureFixedRowCount(body, 3, TABLE_SIZE);
 
         abortRef.current?.abort();
         abortRef.current = new AbortController();
@@ -187,7 +219,6 @@ export default function TransactionsTable() {
                     h('col', { style: 'width:240px' }), // Hash
                     h('col', null), // Operations
                     h('col', { style: 'width:200px' }), // Outputs (count / total)
-                    h('col', { style: 'width:200px' }), // Gas (execution / storage)
                 ),
                 h(
                     'thead',
@@ -198,7 +229,6 @@ export default function TransactionsTable() {
                         h('th', null, 'Hash'),
                         h('th', null, 'Operations'),
                         h('th', null, 'Outputs (count / total)'),
-                        h('th', null, 'Gas (execution / storage)'),
                     ),
                 ),
                 h('tbody', { ref: bodyRef }),
