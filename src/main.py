@@ -20,6 +20,8 @@ async def main():
         reload=False,
         loop="asyncio",
         log_config=None,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
     )
     server = uvicorn.Server(config)
 
