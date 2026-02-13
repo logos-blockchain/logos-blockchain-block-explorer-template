@@ -1,7 +1,7 @@
 // static/pages/TransactionsTable.js
 import { h } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
-import { API } from '../lib/api.js';
+import { API, PAGE } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
 import {
     streamNdjson,
@@ -130,7 +130,7 @@ function buildTransactionRow(tx) {
     // Hash (replaces ID)
     const tdId = document.createElement('td');
     tdId.className = 'mono';
-    tdId.appendChild(createLink(`/transactions/${tx.hash}`, shortenHex(tx.hash), tx.hash));
+    tdId.appendChild(createLink(PAGE.TRANSACTION_DETAIL(tx.hash), shortenHex(tx.hash), tx.hash));
 
     // Operations (preview)
     const tdOps = document.createElement('td');

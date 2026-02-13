@@ -1,7 +1,7 @@
 // static/pages/TransactionDetail.js
 import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { API, PAGE } from '../lib/api.js';
+import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
 
 // ————— helpers —————
@@ -536,7 +536,7 @@ export default function TransactionDetail({ parameters }) {
         h(
             'header',
             { style: 'display:flex; gap:12px; alignItems:center; margin:12px 0;' },
-            h('a', { class: 'linkish', href: '/' }, '← Back'),
+            h('a', { class: 'linkish', href: `${BASE_PATH}/` }, '← Back'),
             h('h1', { style: 'margin:0' }, pageTitle),
         ),
 

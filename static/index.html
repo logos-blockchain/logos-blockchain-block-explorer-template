@@ -5,9 +5,10 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="description" content="Lightweight λ Blockchain block Explorer UI" />
+        <base href="__BASE_PATH__" />
 
         <!-- Styles -->
-        <link rel="stylesheet" href="/static/styles.css" />
+        <link rel="stylesheet" href="static/styles.css" />
 
         <!-- Speed up first connection to ESM CDN -->
         <link rel="dns-prefetch" href="https://esm.sh" />
@@ -24,12 +25,12 @@
         </script>
 
         <!-- Safe to preload after the import map -->
-        <link rel="modulepreload" href="/static/app.js" />
+        <link rel="modulepreload" href="static/app.js" />
         <link rel="modulepreload" href="https://esm.sh/preact@10.22.0" crossorigin />
         <link rel="modulepreload" href="https://esm.sh/preact@10.22.0/hooks" crossorigin />
     </head>
     <body>
         <div id="app"></div>
-        <script type="module" src="/static/app.js"></script>
+        <script type="module" src="static/app.js"></script>
     </body>
 </html>

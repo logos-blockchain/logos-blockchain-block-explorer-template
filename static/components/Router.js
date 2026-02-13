@@ -1,5 +1,15 @@
 import { h } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+import { BASE_PATH } from '../lib/api.js';
+
+/** Strip the BASE_PATH prefix from a pathname so route regexes match the relative path. */
+function stripBase(pathname) {
+    if (BASE_PATH && pathname.startsWith(BASE_PATH)) {
+        const relative = pathname.slice(BASE_PATH.length);
+        return relative.startsWith('/') ? relative : '/' + relative;
+    }
+    return pathname;
+}
 
 export default function AppRouter({ routes }) {
     const [match, setMatch] = useState(() => resolveRoute(location.pathname, routes));
@@ -50,10 +60,11 @@ export default function AppRouter({ routes }) {
 }
 
 function resolveRoute(pathname, routes) {
+    const relative = stripBase(pathname);
     for (const route of routes) {
         const rx = route.pattern || route.re;
         if (!rx) continue;
-        const m = pathname.match(rx);
+        const m = relative.match(rx);
         if (m) return { view: route.view, parameters: m.slice(1) };
     }
     return null;

@@ -1,17 +1,22 @@
 from http.client import SERVICE_UNAVAILABLE
 
 from fastapi import APIRouter, HTTPException
-from starlette.responses import FileResponse
+from starlette.requests import Request
+from starlette.responses import HTMLResponse
 
 from . import STATIC_DIR
 
 INDEX_FILE = STATIC_DIR.joinpath("index.html")
+INDEX_TEMPLATE = INDEX_FILE.read_text()
 
 
-def spa(path: str) -> FileResponse:
+def spa(request: Request, path: str) -> HTMLResponse:
     if path.startswith(("api", "static")):
         raise HTTPException(SERVICE_UNAVAILABLE, detail="Routing is incorrectly configured.")
-    return FileResponse(INDEX_FILE)
+    root_path = request.scope.get("root_path", "")
+    base_path = root_path.rstrip("/") + "/"
+    html = INDEX_TEMPLATE.replace("__BASE_PATH__", base_path)
+    return HTMLResponse(html)
 
 
 def create_frontend_router() -> APIRouter:

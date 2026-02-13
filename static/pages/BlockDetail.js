@@ -1,7 +1,7 @@
 // static/pages/BlockDetailPage.js
 import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { API, PAGE } from '../lib/api.js';
+import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
 
 const OPERATIONS_PREVIEW_LIMIT = 2;
@@ -147,7 +147,7 @@ export default function BlockDetailPage({ parameters }) {
         h(
             'header',
             { style: 'display:flex; gap:12px; align-items:center; margin:12px 0;' },
-            h('a', { class: 'linkish', href: '/' }, '← Back'),
+            h('a', { class: 'linkish', href: `${BASE_PATH}/` }, '← Back'),
             h('h1', { style: 'margin:0' }, pageTitle),
         ),
 

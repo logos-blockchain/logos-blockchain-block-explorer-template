@@ -1,4 +1,7 @@
-const API_PREFIX = '/api/v1';
+const _baseHref = new URL(document.baseURI).pathname;
+export const BASE_PATH = _baseHref.endsWith('/') ? _baseHref.slice(0, -1) : _baseHref;
+
+const API_PREFIX = `${BASE_PATH}/api/v1`;
 
 const joinUrl = (...parts) => parts.join('/').replace(/\/{2,}/g, '/');
 const encodeHash = (hash) => encodeURIComponent(String(hash));
@@ -22,8 +25,8 @@ export const API = {
     BLOCKS_LIST,
 };
 
-const BLOCK_DETAIL = (hash) => joinUrl('/blocks', encodeHash(hash));
-const TRANSACTION_DETAIL = (hash) => joinUrl('/transactions', encodeHash(hash));
+const BLOCK_DETAIL = (hash) => joinUrl(`${BASE_PATH}/blocks`, encodeHash(hash));
+const TRANSACTION_DETAIL = (hash) => joinUrl(`${BASE_PATH}/transactions`, encodeHash(hash));
 
 export const PAGE = {
     BLOCK_DETAIL,
