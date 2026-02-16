@@ -151,3 +151,8 @@ tr:nth-child(odd) {
 tr.ph td {
     opacity: 0.35;
 }
+
+@keyframes live-pulse {
+    0%, 100% { box-shadow: 0 0 4px #ff4444, 0 0 8px #ff4444; }
+    50% { box-shadow: 0 0 8px #ff4444, 0 0 16px #ff4444, 0 0 24px #ff6666; }
+}

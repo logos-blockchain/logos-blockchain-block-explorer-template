@@ -1,35 +1,12 @@
 // static/components/TransactionsTable.js
 import { h } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { API, PAGE } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
-import {
-    streamNdjson,
-    ensureFixedRowCount,
-    shortenHex, // (kept in case you want to use later)
-    withBenignFilter,
-} from '../lib/utils.js';
+import { shortenHex, streamNdjson } from '../lib/utils.js';
 import { subscribeFork } from '../lib/fork.js';
 
 const OPERATIONS_PREVIEW_LIMIT = 2;
-
-// ---------- small DOM helpers ----------
-function createSpan(className, text, title) {
-    const el = document.createElement('span');
-    if (className) el.className = className;
-    if (title) el.title = title;
-    el.textContent = text;
-    return el;
-}
-
-function createLink(href, text, title) {
-    const el = document.createElement('a');
-    el.className = 'linkish mono';
-    el.href = href;
-    if (title) el.title = title;
-    el.textContent = text;
-    return el;
-}
 
 // ---------- coercion / formatting helpers ----------
 const toNumber = (v) => {
@@ -97,7 +74,7 @@ function opPreview(op) {
 }
 
 function formatOperationsPreview(ops) {
-    if (!ops?.length) return '—';
+    if (!ops?.length) return '\u2014';
     const previews = ops.map(opPreview);
     if (previews.length <= OPERATIONS_PREVIEW_LIMIT) return previews.join(', ');
     const head = previews.slice(0, OPERATIONS_PREVIEW_LIMIT).join(', ');
@@ -106,10 +83,8 @@ function formatOperationsPreview(ops) {
 }
 
 // ---------- normalize API → view model ----------
-function normalizeTransaction(raw) {
-    // { id, block_id, hash, operations:[Operation], inputs:[HexBytes], outputs:[Note], proof, execution_gas_price, storage_gas_price, created_at? }
+function normalize(raw) {
     const ops = Array.isArray(raw?.operations) ? raw.operations : Array.isArray(raw?.ops) ? raw.ops : [];
-
     const outputs = Array.isArray(raw?.outputs) ? raw.outputs : [];
     const totalOutputValue = outputs.reduce((sum, note) => sum + toNumber(note?.value), 0);
 
@@ -124,102 +99,166 @@ function normalizeTransaction(raw) {
     };
 }
 
-// ---------- row builder ----------
-function buildTransactionRow(tx) {
-    const tr = document.createElement('tr');
-
-    // Hash (replaces ID)
-    const tdId = document.createElement('td');
-    tdId.className = 'mono';
-    tdId.appendChild(createLink(PAGE.TRANSACTION_DETAIL(tx.hash), shortenHex(tx.hash), tx.hash));
-
-    // Operations (preview)
-    const tdOps = document.createElement('td');
-    tdOps.style.whiteSpace = 'normal';
-    tdOps.style.lineHeight = '1.4';
-    const preview = formatOperationsPreview(tx.operations);
-    const fullPreview = Array.isArray(tx.operations) ? tx.operations.map(opPreview).join(', ') : '';
-    tdOps.appendChild(createSpan('', preview, fullPreview));
-
-    // Outputs (count / total)
-    const tdOut = document.createElement('td');
-    tdOut.className = 'amount';
-    tdOut.textContent = `${tx.numberOfOutputs} / ${tx.totalOutputValue.toLocaleString(undefined, { maximumFractionDigits: 8 })}`;
-
-    tr.append(tdId, tdOps, tdOut);
-    return tr;
-}
-
 // ---------- component ----------
-export default function TransactionsTable() {
-    const bodyRef = useRef(null);
-    const countRef = useRef(null);
-    const abortRef = useRef(null);
-    const totalCountRef = useRef(0);
+export default function TransactionsTable({ live }) {
+    const [transactions, setTransactions] = useState([]);
+    const [page, setPage] = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
+    const [totalCount, setTotalCount] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [fork, setFork] = useState(null);
+
+    const abortRef = useRef(null);
+    const seenKeysRef = useRef(new Set());
 
     // Subscribe to fork-choice changes
     useEffect(() => {
         return subscribeFork((newFork) => setFork(newFork));
     }, []);
 
-    useEffect(() => {
-        if (fork == null) return;
+    // Fetch paginated transactions
+    const fetchTransactions = useCallback(async (pageNum, currentFork) => {
+        abortRef.current?.abort();
+        seenKeysRef.current.clear();
 
-        const body = bodyRef.current;
-        const counter = countRef.current;
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(API.TRANSACTIONS_LIST(pageNum, TABLE_SIZE, currentFork));
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            setTransactions(data.transactions.map(normalize));
+            setTotalPages(data.total_pages);
+            setTotalCount(data.total_count);
+            setPage(data.page);
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
-        // Clear existing rows on fork change
-        while (body.rows.length > 0) body.deleteRow(0);
-        totalCountRef.current = 0;
-        counter.textContent = '0';
-
-        // 3 columns: Hash | Operations | Outputs
-        ensureFixedRowCount(body, 3, TABLE_SIZE);
-
+    // Start live streaming
+    const startLiveStream = useCallback((currentFork) => {
         abortRef.current?.abort();
         abortRef.current = new AbortController();
+        seenKeysRef.current.clear();
+        setTransactions([]);
+        setLoading(true);
+        setError(null);
 
-        const url = `${API.TRANSACTIONS_STREAM_WITH_FORK(fork)}&prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`;
+        let liveTxs = [];
 
+        const url = `${API.TRANSACTIONS_STREAM_WITH_FORK(currentFork)}&prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`;
         streamNdjson(
             url,
             (raw) => {
-                try {
-                    const tx = normalizeTransaction(raw);
-                    const row = buildTransactionRow(tx);
-                    body.insertBefore(row, body.firstChild);
+                const tx = normalize(raw);
+                const key = `${tx.id}:${tx.hash}`;
+                if (seenKeysRef.current.has(key)) return;
+                seenKeysRef.current.add(key);
 
-                    while (body.rows.length > TABLE_SIZE) body.deleteRow(-1);
-                    counter.textContent = String(++totalCountRef.current);
-                } catch (err) {
-                    console.error('Failed to render transaction row:', err, raw);
-                }
+                liveTxs = [tx, ...liveTxs].slice(0, TABLE_SIZE);
+                setTransactions([...liveTxs]);
+                setTotalCount(liveTxs.length);
+                setLoading(false);
             },
             {
                 signal: abortRef.current.signal,
-                onError: withBenignFilter(
-                    (err) => console.error('Transactions stream error:', err),
-                    abortRef.current.signal,
-                ),
+                onError: (e) => {
+                    if (e?.name !== 'AbortError') {
+                        console.error('Transactions stream error:', e);
+                        setError(e?.message || 'Stream error');
+                    }
+                },
             },
-        ).catch((err) => {
-            if (!abortRef.current.signal.aborted) {
-                console.error('Transactions stream connection error:', err);
-            }
-        });
+        );
+    }, []);
 
+    // Handle live mode and fork changes
+    useEffect(() => {
+        if (fork == null) return;
+        if (live) {
+            startLiveStream(fork);
+        } else {
+            setPage(0);
+            fetchTransactions(0, fork);
+        }
         return () => abortRef.current?.abort();
-    }, [fork]);
+    }, [live, fork, startLiveStream]);
+
+    // Go to a page
+    const goToPage = (newPage) => {
+        if (newPage >= 0 && fork != null) {
+            fetchTransactions(newPage, fork);
+        }
+    };
+
+    const navigateToTxDetail = (txHash) => {
+        history.pushState({}, '', PAGE.TRANSACTION_DETAIL(txHash));
+        window.dispatchEvent(new PopStateEvent('popstate'));
+    };
+
+    const renderRow = (tx, idx) => {
+        const opsPreview = formatOperationsPreview(tx.operations);
+        const fullPreview = Array.isArray(tx.operations) ? tx.operations.map(opPreview).join(', ') : '';
+        const outputsText = `${tx.numberOfOutputs} / ${tx.totalOutputValue.toLocaleString(undefined, { maximumFractionDigits: 8 })}`;
+
+        return h(
+            'tr',
+            { key: tx.id || idx },
+            // Hash
+            h(
+                'td',
+                null,
+                h(
+                    'a',
+                    {
+                        class: 'linkish mono',
+                        href: PAGE.TRANSACTION_DETAIL(tx.hash),
+                        title: tx.hash,
+                        onClick: (e) => {
+                            e.preventDefault();
+                            navigateToTxDetail(tx.hash);
+                        },
+                    },
+                    shortenHex(tx.hash),
+                ),
+            ),
+            // Operations
+            h('td', { style: 'white-space:normal; line-height:1.4;' }, h('span', { title: fullPreview }, opsPreview)),
+            // Outputs
+            h('td', { class: 'amount' }, outputsText),
+        );
+    };
+
+    const renderPlaceholderRow = (idx) => {
+        return h(
+            'tr',
+            { key: `ph-${idx}`, class: 'ph' },
+            h('td', null, '\u00A0'),
+            h('td', null, '\u00A0'),
+            h('td', null, '\u00A0'),
+        );
+    };
+
+    const rows = [];
+    for (let i = 0; i < TABLE_SIZE; i++) {
+        if (i < transactions.length) {
+            rows.push(renderRow(transactions[i], i));
+        } else {
+            rows.push(renderPlaceholderRow(i));
+        }
+    }
 
     return h(
         'div',
         { class: 'card' },
         h(
             'div',
-            { class: 'card-header' },
-            h('div', null, h('strong', null, 'Transactions '), h('span', { class: 'pill', ref: countRef }, '0')),
-            h('div', { style: 'color:var(--muted); font-size:12px;' }),
+            { class: 'card-header', style: 'display:flex; justify-content:space-between; align-items:center;' },
+            h('div', null, h('strong', null, 'Transactions '), h('span', { class: 'pill' }, String(totalCount))),
         ),
         h(
             'div',
@@ -245,8 +284,43 @@ export default function TransactionsTable() {
                         h('th', null, 'Outputs (count / total)'),
                     ),
                 ),
-                h('tbody', { ref: bodyRef }),
+                h('tbody', null, ...rows),
             ),
         ),
+        // Pagination controls
+        h(
+            'div',
+            {
+                class: 'card-footer',
+                style: 'display:flex; justify-content:space-between; align-items:center; padding:8px 14px; border-top:1px solid var(--border);',
+            },
+            h(
+                'button',
+                {
+                    class: 'pill',
+                    disabled: live || page === 0 || loading,
+                    onClick: () => goToPage(page - 1),
+                    style: 'cursor:pointer;',
+                },
+                'Previous',
+            ),
+            h(
+                'span',
+                { style: 'color:var(--muted); font-size:13px;' },
+                live ? 'Streaming live transactions...' : totalPages > 0 ? `Page ${page + 1} of ${totalPages}` : 'No transactions',
+            ),
+            h(
+                'button',
+                {
+                    class: 'pill',
+                    disabled: live || page >= totalPages - 1 || loading,
+                    onClick: () => goToPage(page + 1),
+                    style: 'cursor:pointer;',
+                },
+                'Next',
+            ),
+        ),
+        // Error display
+        error && h('div', { style: 'padding:8px 14px; color:#ff8a8a;' }, `Error: ${error}`),
     );
 }

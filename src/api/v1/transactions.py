@@ -41,6 +41,26 @@ async def stream(
     return NDJsonStreamingResponse(ndjson_transactions_stream)
 
 
+async def list_transactions(
+    request: NBERequest,
+    page: int = Query(0, ge=0),
+    page_size: int = Query(10, ge=1, le=100, alias="page-size"),
+    fork: int = Query(...),
+) -> Response:
+    transactions, total_count = await request.app.state.transaction_repository.get_paginated(
+        page, page_size, fork=fork
+    )
+    total_pages = (total_count + page_size - 1) // page_size
+
+    return JSONResponse({
+        "transactions": [TransactionRead.from_transaction(tx).model_dump(mode="json") for tx in transactions],
+        "page": page,
+        "page_size": page_size,
+        "total_count": total_count,
+        "total_pages": total_pages,
+    })
+
+
 async def get(request: NBERequest, transaction_hash: str, fork: int = Query(...)) -> Response:
     if not transaction_hash:
         return Response(status_code=NOT_FOUND)

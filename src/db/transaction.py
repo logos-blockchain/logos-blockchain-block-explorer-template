@@ -2,7 +2,7 @@ from asyncio import sleep
 from typing import AsyncIterator, List
 
 from rusty_results import Empty, Option, Some
-from sqlalchemy import Result, Select
+from sqlalchemy import Result, Select, func as sa_func
 from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import select
 
@@ -76,6 +76,37 @@ class TransactionRepository:
         with self.client.session() as session:
             results: Result[Transaction] = session.exec(statement)
             return results.all()
+
+    async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Transaction], int]:
+        """
+        Get transactions with pagination, ordered by block height descending (newest first).
+        Returns a tuple of (transactions, total_count).
+        """
+        offset = page * page_size
+
+        with self.client.session() as session:
+            # Get total count for this fork
+            count_statement = (
+                select(sa_func.count())
+                .select_from(Transaction)
+                .join(Block, Transaction.block_id == Block.id)
+                .where(Block.fork == fork)
+            )
+            total_count = session.exec(count_statement).one()
+
+            # Get paginated transactions
+            statement = (
+                select(Transaction)
+                .options(selectinload(Transaction.block))
+                .join(Block, Transaction.block_id == Block.id)
+                .where(Block.fork == fork)
+                .order_by(Block.height.desc(), Transaction.id.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+            transactions = session.exec(statement).all()
+
+        return transactions, total_count
 
     async def updates_stream(
         self, transaction_from: Option[Transaction], *, fork: int, timeout_seconds: int = 1

@@ -25,14 +25,13 @@ const normalize = (raw) => {
     };
 };
 
-export default function BlocksTable() {
+export default function BlocksTable({ live }) {
     const [blocks, setBlocks] = useState([]);
     const [page, setPage] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [live, setLive] = useState(true); // Start in live mode
     const [fork, setFork] = useState(null);
 
     const abortRef = useRef(null);
@@ -110,24 +109,16 @@ export default function BlocksTable() {
         if (live) {
             startLiveStream(fork);
         } else {
-            fetchBlocks(page, fork);
+            setPage(0);
+            fetchBlocks(0, fork);
         }
         return () => abortRef.current?.abort();
     }, [live, fork, startLiveStream]);
 
-    // Go to a page (turns off live mode)
+    // Go to a page
     const goToPage = (newPage) => {
         if (newPage >= 0 && fork != null) {
-            setLive(false);
             fetchBlocks(newPage, fork);
-        }
-    };
-
-    // Toggle live mode
-    const toggleLive = () => {
-        if (!live) {
-            setLive(true);
-            setPage(0);
         }
     };
 
@@ -209,46 +200,13 @@ export default function BlocksTable() {
         }
     }
 
-    // Live button styles
-    const liveButtonStyle = live
-        ? `
-            cursor: pointer;
-            background: #ff4444;
-            color: white;
-            border: none;
-            animation: live-pulse 1.5s ease-in-out infinite;
-        `
-        : `
-            cursor: pointer;
-            background: var(--bg-secondary, #333);
-            color: var(--muted, #888);
-            border: 1px solid var(--border, #444);
-        `;
-
     return h(
         'div',
         { class: 'card' },
-        // Inject keyframes for the pulse animation
-        h('style', null, `
-            @keyframes live-pulse {
-                0%, 100% { box-shadow: 0 0 4px #ff4444, 0 0 8px #ff4444; }
-                50% { box-shadow: 0 0 8px #ff4444, 0 0 16px #ff4444, 0 0 24px #ff6666; }
-            }
-        `),
         h(
             'div',
             { class: 'card-header', style: 'display:flex; justify-content:space-between; align-items:center;' },
             h('div', null, h('strong', null, 'Blocks '), h('span', { class: 'pill' }, String(totalCount))),
-            h(
-                'button',
-                {
-                    class: 'pill',
-                    style: liveButtonStyle,
-                    onClick: toggleLive,
-                    title: live ? 'Live updates enabled' : 'Click to enable live updates',
-                },
-                live ? 'LIVE \u2022' : 'LIVE',
-            ),
         ),
         h(
             'div',
@@ -294,7 +252,7 @@ export default function BlocksTable() {
                 'button',
                 {
                     class: 'pill',
-                    disabled: page === 0 || loading,
+                    disabled: live || page === 0 || loading,
                     onClick: () => goToPage(page - 1),
                     style: 'cursor:pointer;',
                 },
@@ -309,8 +267,8 @@ export default function BlocksTable() {
                 'button',
                 {
                     class: 'pill',
-                    disabled: (!live && page >= totalPages - 1) || loading,
-                    onClick: () => live ? goToPage(0) : goToPage(page + 1),
+                    disabled: live || page >= totalPages - 1 || loading,
+                    onClick: () => goToPage(page + 1),
                     style: 'cursor:pointer;',
                 },
                 'Next',
