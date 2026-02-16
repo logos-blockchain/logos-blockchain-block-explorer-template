@@ -16,9 +16,9 @@ from models.block import Block
 logger = logging.getLogger(__name__)
 
 
-def get_latest_statement(limit: int, *, output_ascending: bool = True) -> Select:
+def get_latest_statement(limit: int, *, fork: int, output_ascending: bool = True) -> Select:
     # Fetch the latest N blocks in descending height order
-    base = select(Block).order_by(Block.height.desc()).limit(limit)
+    base = select(Block).where(Block.fork == fork).order_by(Block.height.desc()).limit(limit)
     if not output_ascending:
         return base
 
@@ -215,16 +215,26 @@ class BlockRepository:
             else:
                 return Empty()
 
-    async def get_latest(self, limit: int, *, ascending: bool = True) -> List[Block]:
+    async def get_latest(self, limit: int, *, fork: int, ascending: bool = True) -> List[Block]:
         if limit == 0:
             return []
 
-        statement = get_latest_statement(limit, output_ascending=ascending)
+        statement = get_latest_statement(limit, fork=fork, output_ascending=ascending)
 
         with self.client.session() as session:
             results: Result[Block] = session.exec(statement)
             b = results.all()
             return b
+
+    async def get_fork_choice(self) -> Option[int]:
+        """Return the fork number of the longest chain (block with max height)."""
+        statement = select(Block.fork).order_by(Block.height.desc()).limit(1)
+        with self.client.session() as session:
+            result = session.exec(statement).one_or_none()
+            if result is not None:
+                return Some(result)
+            else:
+                return Empty()
 
     async def get_earliest(self) -> Option[Block]:
         statement = select(Block).order_by(Block.height.asc()).limit(1)
@@ -236,7 +246,7 @@ class BlockRepository:
             else:
                 return Empty()
 
-    async def get_paginated(self, page: int, page_size: int) -> tuple[List[Block], int]:
+    async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Block], int]:
         """
         Get blocks with pagination, ordered by height descending (newest first).
         Returns a tuple of (blocks, total_count).
@@ -244,14 +254,14 @@ class BlockRepository:
         offset = page * page_size
 
         with self.client.session() as session:
-            # Get total count
-            from sqlalchemy import func
-            count_statement = select(func.count()).select_from(Block)
+            # Get total count for this fork
+            count_statement = select(sa_func.count()).select_from(Block).where(Block.fork == fork)
             total_count = session.exec(count_statement).one()
 
             # Get paginated blocks
             statement = (
                 select(Block)
+                .where(Block.fork == fork)
                 .order_by(Block.height.desc())
                 .offset(offset)
                 .limit(page_size)
@@ -261,14 +271,14 @@ class BlockRepository:
         return blocks, total_count
 
     async def updates_stream(
-        self, block_from: Option[Block], *, timeout_seconds: int = 1
+        self, block_from: Option[Block], *, fork: int, timeout_seconds: int = 1
     ) -> AsyncIterator[List[Block]]:
         height_cursor: int = block_from.map(lambda block: block.height + 1).unwrap_or(0)
 
         while True:
             statement = (
                 select(Block)
-                .where(Block.height >= height_cursor)
+                .where(Block.fork == fork, Block.height >= height_cursor)
                 .order_by(Block.height.asc())
             )
 

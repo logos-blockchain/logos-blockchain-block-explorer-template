@@ -1,6 +1,6 @@
-// static/pages/TransactionsTable.js
+// static/components/TransactionsTable.js
 import { h } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { API, PAGE } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
 import {
@@ -9,6 +9,7 @@ import {
     shortenHex, // (kept in case you want to use later)
     withBenignFilter,
 } from '../lib/utils.js';
+import { subscribeFork } from '../lib/fork.js';
 
 const OPERATIONS_PREVIEW_LIMIT = 2;
 
@@ -155,10 +156,23 @@ export default function TransactionsTable() {
     const countRef = useRef(null);
     const abortRef = useRef(null);
     const totalCountRef = useRef(0);
+    const [fork, setFork] = useState(null);
+
+    // Subscribe to fork-choice changes
+    useEffect(() => {
+        return subscribeFork((newFork) => setFork(newFork));
+    }, []);
 
     useEffect(() => {
+        if (fork == null) return;
+
         const body = bodyRef.current;
         const counter = countRef.current;
+
+        // Clear existing rows on fork change
+        while (body.rows.length > 0) body.deleteRow(0);
+        totalCountRef.current = 0;
+        counter.textContent = '0';
 
         // 3 columns: Hash | Operations | Outputs
         ensureFixedRowCount(body, 3, TABLE_SIZE);
@@ -166,7 +180,7 @@ export default function TransactionsTable() {
         abortRef.current?.abort();
         abortRef.current = new AbortController();
 
-        const url = `${API.TRANSACTIONS_STREAM}?prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`;
+        const url = `${API.TRANSACTIONS_STREAM_WITH_FORK(fork)}&prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`;
 
         streamNdjson(
             url,
@@ -196,7 +210,7 @@ export default function TransactionsTable() {
         });
 
         return () => abortRef.current?.abort();
-    }, []);
+    }, [fork]);
 
     return h(
         'div',

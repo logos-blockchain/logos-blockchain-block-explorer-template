@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import blocks, health, index, transactions
+from . import blocks, fork_choice, health, index, transactions
 
 
 def create_v1_router() -> APIRouter:
@@ -16,6 +16,8 @@ def create_v1_router() -> APIRouter:
 
     router.add_api_route("/transactions/stream", transactions.stream, methods=["GET"])
     router.add_api_route("/transactions/{transaction_hash:str}", transactions.get, methods=["GET"])
+
+    router.add_api_route("/fork-choice", fork_choice.get, methods=["GET"])
 
     router.add_api_route("/blocks/stream", blocks.stream, methods=["GET"])
     router.add_api_route("/blocks/list", blocks.list_blocks, methods=["GET"])

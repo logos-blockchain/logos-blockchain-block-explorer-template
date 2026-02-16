@@ -11,11 +11,12 @@ from models.block import Block
 from models.transactions.transaction import Transaction
 
 
-def get_latest_statement(limit: int, *, output_ascending: bool, preload_relationships: bool) -> Select:
+def get_latest_statement(limit: int, *, fork: int, output_ascending: bool, preload_relationships: bool) -> Select:
     # Join with Block to order by Block's height and fetch the latest N transactions in descending order
     base = (
         select(Transaction, Block.height.label("block__height"))
         .join(Block, Transaction.block_id == Block.id)
+        .where(Block.fork == fork)
         .order_by(Block.height.desc(), Transaction.id.desc())
         .limit(limit)
     )
@@ -61,19 +62,19 @@ class TransactionRepository:
                 return Empty()
 
     async def get_latest(
-        self, limit: int, *, ascending: bool = False, preload_relationships: bool = False
+        self, limit: int, *, fork: int, ascending: bool = False, preload_relationships: bool = False
     ) -> List[Transaction]:
         if limit == 0:
             return []
 
-        statement = get_latest_statement(limit, output_ascending=ascending, preload_relationships=preload_relationships)
+        statement = get_latest_statement(limit, fork=fork, output_ascending=ascending, preload_relationships=preload_relationships)
 
         with self.client.session() as session:
             results: Result[Transaction] = session.exec(statement)
             return results.all()
 
     async def updates_stream(
-        self, transaction_from: Option[Transaction], *, timeout_seconds: int = 1
+        self, transaction_from: Option[Transaction], *, fork: int, timeout_seconds: int = 1
     ) -> AsyncIterator[List[Transaction]]:
         height_cursor = transaction_from.map(lambda transaction: transaction.block.height).unwrap_or(0)
         transaction_id_cursor = transaction_from.map(lambda transaction: transaction.id + 1).unwrap_or(0)
@@ -84,6 +85,7 @@ class TransactionRepository:
                 .options(selectinload(Transaction.block))
                 .join(Block, Transaction.block_id == Block.id)
                 .where(
+                    Block.fork == fork,
                     Block.height >= height_cursor,
                     Transaction.id >= transaction_id_cursor,
                 )

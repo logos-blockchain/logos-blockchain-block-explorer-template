@@ -16,22 +16,26 @@ if TYPE_CHECKING:
 
 
 async def _get_transactions_stream_serialized(
-    app: "NBE", transaction_from: Option[Transaction]
+    app: "NBE", transaction_from: Option[Transaction], *, fork: int
 ) -> AsyncIterator[List[TransactionRead]]:
-    _stream = app.state.transaction_repository.updates_stream(transaction_from)
+    _stream = app.state.transaction_repository.updates_stream(transaction_from, fork=fork)
     async for transactions in _stream:
         yield [TransactionRead.from_transaction(transaction) for transaction in transactions]
 
 
-async def stream(request: NBERequest, prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0)) -> Response:
+async def stream(
+    request: NBERequest,
+    prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0),
+    fork: int = Query(...),
+) -> Response:
     latest_transactions: List[Transaction] = await request.app.state.transaction_repository.get_latest(
-        prefetch_limit, ascending=True, preload_relationships=True
+        prefetch_limit, fork=fork, ascending=True, preload_relationships=True
     )
     latest_transaction = Some(latest_transactions[-1]) if latest_transactions else Empty()
     bootstrap_transactions = [TransactionRead.from_transaction(transaction) for transaction in latest_transactions]
 
     transactions_stream: AsyncIterator[List[TransactionRead]] = _get_transactions_stream_serialized(
-        request.app, latest_transaction
+        request.app, latest_transaction, fork=fork
     )
     ndjson_transactions_stream = into_ndjson_stream(transactions_stream, bootstrap_data=bootstrap_transactions)
     return NDJsonStreamingResponse(ndjson_transactions_stream)

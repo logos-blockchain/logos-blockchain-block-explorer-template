@@ -251,3 +251,124 @@ def test_batch_with_fork_and_chain(client, repo):
     assert forks[b"\x02"] == 0  # A inherits from genesis
     assert forks[b"\x03"] == 1  # B forks
     assert forks[b"\x04"] == 0  # C inherits from A
+
+
+# --- Fork choice tests ---
+
+
+def test_fork_choice_empty_db(client, repo):
+    """Fork choice returns Empty when no blocks exist."""
+    from rusty_results import Empty
+    result = asyncio.run(repo.get_fork_choice())
+    assert isinstance(result, Empty)
+
+
+def test_fork_choice_single_chain(client, repo):
+    """Fork choice returns fork 0 for a single linear chain."""
+    genesis = make_block(b"\x01", parent=b"\x00", slot=0)
+    a = make_block(b"\x02", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(genesis, a))
+
+    result = asyncio.run(repo.get_fork_choice())
+    assert result.unwrap() == 0
+
+
+def test_fork_choice_returns_longest_fork(client, repo):
+    """
+    Fork choice returns the fork with the highest block.
+
+    genesis -> A -> C   (fork 0, height 2)
+           \\-> B       (fork 1, height 1)
+
+    Fork 0 is longer, so fork choice should return 0.
+    """
+    genesis = make_block(b"\x01", parent=b"\x00", slot=0)
+    asyncio.run(repo.create(genesis))
+
+    a = make_block(b"\x02", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(a))
+
+    b = make_block(b"\x03", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(b))
+
+    c = make_block(b"\x04", parent=b"\x02", slot=2)
+    asyncio.run(repo.create(c))
+
+    result = asyncio.run(repo.get_fork_choice())
+    assert result.unwrap() == 0
+
+
+def test_fork_choice_switches_on_overtake(client, repo):
+    """
+    Fork choice switches when the alternative fork grows longer.
+
+    genesis -> A       (fork 0, height 1)
+           \\-> B -> C  (fork 1, height 2)
+
+    Fork 1 is longer, so fork choice should return 1.
+    """
+    genesis = make_block(b"\x01", parent=b"\x00", slot=0)
+    asyncio.run(repo.create(genesis))
+
+    a = make_block(b"\x02", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(a))
+
+    b = make_block(b"\x03", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(b))
+
+    # Fork 0 has height 1 (block A). Now extend fork 1 past it.
+    c = make_block(b"\x04", parent=b"\x03", slot=2)
+    asyncio.run(repo.create(c))
+
+    result = asyncio.run(repo.get_fork_choice())
+    assert result.unwrap() == 1
+
+
+# --- Fork-filtered query tests ---
+
+
+def test_get_latest_filters_by_fork(client, repo):
+    """get_latest with fork filter only returns blocks from that fork."""
+    genesis = make_block(b"\x01", parent=b"\x00", slot=0)
+    asyncio.run(repo.create(genesis))
+
+    a = make_block(b"\x02", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(a))
+
+    b = make_block(b"\x03", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(b))
+
+    # Fork 0: genesis, A.  Fork 1: B (but B also shares genesis at fork 0... no, genesis is fork 0)
+    # Actually: genesis=fork0, A=fork0, B=fork1
+    fork0_blocks = asyncio.run(repo.get_latest(10, fork=0))
+    fork1_blocks = asyncio.run(repo.get_latest(10, fork=1))
+
+    fork0_hashes = {b.hash for b in fork0_blocks}
+    fork1_hashes = {b.hash for b in fork1_blocks}
+
+    assert b"\x01" in fork0_hashes  # genesis
+    assert b"\x02" in fork0_hashes  # A
+    assert b"\x03" not in fork0_hashes
+
+    assert b"\x03" in fork1_hashes  # B
+    assert b"\x02" not in fork1_hashes
+
+
+def test_get_paginated_filters_by_fork(client, repo):
+    """get_paginated with fork filter only returns blocks from that fork."""
+    genesis = make_block(b"\x01", parent=b"\x00", slot=0)
+    asyncio.run(repo.create(genesis))
+
+    a = make_block(b"\x02", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(a))
+
+    b = make_block(b"\x03", parent=b"\x01", slot=1)
+    asyncio.run(repo.create(b))
+
+    blocks_f0, count_f0 = asyncio.run(repo.get_paginated(0, 10, fork=0))
+    blocks_f1, count_f1 = asyncio.run(repo.get_paginated(0, 10, fork=1))
+
+    assert count_f0 == 2  # genesis + A
+    assert count_f1 == 1  # B only
+    assert {b.hash for b in blocks_f0} == {b"\x01", b"\x02"}
+    assert {b.hash for b in blocks_f1} == {b"\x03"}

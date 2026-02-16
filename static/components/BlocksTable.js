@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { PAGE, API } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
 import { shortenHex, streamNdjson } from '../lib/utils.js';
+import { subscribeFork } from '../lib/fork.js';
 
 const normalize = (raw) => {
     const header = raw.header ?? null;
@@ -32,12 +33,18 @@ export default function BlocksTable() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [live, setLive] = useState(true); // Start in live mode
+    const [fork, setFork] = useState(null);
 
     const abortRef = useRef(null);
     const seenKeysRef = useRef(new Set());
 
+    // Subscribe to fork-choice changes
+    useEffect(() => {
+        return subscribeFork((newFork) => setFork(newFork));
+    }, []);
+
     // Fetch paginated blocks
-    const fetchBlocks = useCallback(async (pageNum) => {
+    const fetchBlocks = useCallback(async (pageNum, currentFork) => {
         // Stop any live stream
         abortRef.current?.abort();
         seenKeysRef.current.clear();
@@ -45,7 +52,7 @@ export default function BlocksTable() {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(API.BLOCKS_LIST(pageNum, TABLE_SIZE));
+            const res = await fetch(API.BLOCKS_LIST(pageNum, TABLE_SIZE, currentFork));
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             setBlocks(data.blocks.map(normalize));
@@ -60,7 +67,7 @@ export default function BlocksTable() {
     }, []);
 
     // Start live streaming
-    const startLiveStream = useCallback(() => {
+    const startLiveStream = useCallback((currentFork) => {
         abortRef.current?.abort();
         abortRef.current = new AbortController();
         seenKeysRef.current.clear();
@@ -70,8 +77,9 @@ export default function BlocksTable() {
 
         let liveBlocks = [];
 
+        const url = `${API.BLOCKS_STREAM(currentFork)}&prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`;
         streamNdjson(
-            `${API.BLOCKS_STREAM}?prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`,
+            url,
             (raw) => {
                 const b = normalize(raw);
                 const key = `${b.id}:${b.slot}`;
@@ -96,19 +104,22 @@ export default function BlocksTable() {
         );
     }, []);
 
-    // Handle live mode changes
+    // Handle live mode and fork changes
     useEffect(() => {
+        if (fork == null) return;
         if (live) {
-            startLiveStream();
+            startLiveStream(fork);
+        } else {
+            fetchBlocks(page, fork);
         }
         return () => abortRef.current?.abort();
-    }, [live, startLiveStream]);
+    }, [live, fork, startLiveStream]);
 
     // Go to a page (turns off live mode)
     const goToPage = (newPage) => {
-        if (newPage >= 0) {
+        if (newPage >= 0 && fork != null) {
             setLive(false);
-            fetchBlocks(newPage);
+            fetchBlocks(newPage, fork);
         }
     };
 

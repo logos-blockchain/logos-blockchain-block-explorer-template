@@ -19,8 +19,9 @@ async def list_blocks(
     request: NBERequest,
     page: int = Query(0, ge=0),
     page_size: int = Query(10, ge=1, le=100, alias="page-size"),
+    fork: int = Query(...),
 ) -> Response:
-    blocks, total_count = await request.app.state.block_repository.get_paginated(page, page_size)
+    blocks, total_count = await request.app.state.block_repository.get_paginated(page, page_size, fork=fork)
     total_pages = (total_count + page_size - 1) // page_size  # ceiling division
 
     return JSONResponse({
@@ -32,18 +33,24 @@ async def list_blocks(
     })
 
 
-async def _get_blocks_stream_serialized(app: "NBE", block_from: Option[Block]) -> AsyncIterator[List[BlockRead]]:
-    _stream = app.state.block_repository.updates_stream(block_from)
+async def _get_blocks_stream_serialized(
+    app: "NBE", block_from: Option[Block], *, fork: int
+) -> AsyncIterator[List[BlockRead]]:
+    _stream = app.state.block_repository.updates_stream(block_from, fork=fork)
     async for blocks in _stream:
         yield [BlockRead.from_block(block) for block in blocks]
 
 
-async def stream(request: NBERequest, prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0)) -> Response:
-    latest_blocks = await request.app.state.block_repository.get_latest(prefetch_limit)
+async def stream(
+    request: NBERequest,
+    prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0),
+    fork: int = Query(...),
+) -> Response:
+    latest_blocks = await request.app.state.block_repository.get_latest(prefetch_limit, fork=fork)
     latest_block = Some(latest_blocks[-1]) if latest_blocks else Empty()
     bootstrap_blocks: List[BlockRead] = [BlockRead.from_block(block) for block in latest_blocks]
 
-    blocks_stream: AsyncIterator[List[BlockRead]] = _get_blocks_stream_serialized(request.app, latest_block)
+    blocks_stream: AsyncIterator[List[BlockRead]] = _get_blocks_stream_serialized(request.app, latest_block, fork=fork)
     ndjson_blocks_stream = into_ndjson_stream(blocks_stream, bootstrap_data=bootstrap_blocks)
     return NDJsonStreamingResponse(ndjson_blocks_stream)
 

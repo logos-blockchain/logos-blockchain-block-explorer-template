@@ -13,6 +13,7 @@ class BlockRead(NbeSchema):
     parent_block_hash: HexBytes
     slot: int
     height: int
+    fork: int
     block_root: HexBytes
     proof_of_leadership: ProofOfLeadership
     transactions: List[Transaction]
@@ -25,6 +26,7 @@ class BlockRead(NbeSchema):
             parent_block_hash=block.parent_block,
             slot=block.slot,
             height=block.height,
+            fork=block.fork,
             block_root=block.block_root,
             proof_of_leadership=block.proof_of_leadership,
             transactions=block.transactions,
