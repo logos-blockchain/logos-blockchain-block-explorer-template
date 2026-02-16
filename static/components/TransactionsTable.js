@@ -161,7 +161,6 @@ export default function TransactionsTable({ live, onDisableLive }) {
 
                 liveTxs = [tx, ...liveTxs].slice(0, TABLE_SIZE);
                 setTransactions([...liveTxs]);
-                setTotalCount(liveTxs.length);
                 setLoading(false);
             },
             {
@@ -188,10 +187,14 @@ export default function TransactionsTable({ live, onDisableLive }) {
         return () => abortRef.current?.abort();
     }, [live, fork, startLiveStream]);
 
-    // Go to a page
+    // Go to a page (or exit live mode into page 0)
     const goToPage = (newPage) => {
-        if (newPage >= 0 && fork != null) {
-            if (live) onDisableLive?.();
+        if (fork == null) return;
+        if (live) {
+            onDisableLive?.();
+            return; // useEffect will handle fetching page 0 when live changes
+        }
+        if (newPage >= 0) {
             fetchTransactions(newPage, fork);
         }
     };
@@ -259,7 +262,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
         h(
             'div',
             { class: 'card-header', style: 'display:flex; justify-content:space-between; align-items:center;' },
-            h('div', null, h('strong', null, 'Transactions '), h('span', { class: 'pill' }, String(totalCount))),
+            h('div', null, h('strong', null, 'Transactions '), !live && totalCount > 0 && h('span', { class: 'pill' }, String(totalCount))),
         ),
         h(
             'div',
@@ -299,7 +302,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
                 'button',
                 {
                     class: 'pill',
-                    disabled: page === 0 || loading,
+                    disabled: !live && (page === 0 || loading),
                     onClick: () => goToPage(page - 1),
                 },
                 'Previous',
@@ -313,7 +316,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
                 'button',
                 {
                     class: 'pill',
-                    disabled: page >= totalPages - 1 || loading,
+                    disabled: !live && (page >= totalPages - 1 || loading),
                     onClick: () => goToPage(page + 1),
                 },
                 'Next',
