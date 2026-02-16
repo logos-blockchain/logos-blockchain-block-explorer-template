@@ -21,7 +21,7 @@ class Transaction(TimestampedModel, table=True):
     # --- Columns --- #
 
     block_id: Optional[int] = Field(default=None, foreign_key="block.id", nullable=False)
-    hash: HexBytes = Field(nullable=False, unique=True)
+    hash: HexBytes = Field(nullable=False)
     operations: List[Operation] = Field(
         default_factory=list, sa_column=Column(PydanticJsonColumn(Operation, many=True), nullable=False)
     )
