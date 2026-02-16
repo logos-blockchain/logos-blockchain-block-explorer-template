@@ -8,7 +8,8 @@ const encodeHash = (hash) => encodeURIComponent(String(hash));
 
 const HEALTH_ENDPOINT = joinUrl(API_PREFIX, 'health/stream');
 
-const TRANSACTION_DETAIL_BY_HASH = (hash) => joinUrl(API_PREFIX, 'transactions', encodeHash(hash));
+const TRANSACTION_DETAIL_BY_HASH = (hash, fork) =>
+    `${joinUrl(API_PREFIX, 'transactions', encodeHash(hash))}?fork=${encodeURIComponent(fork)}`;
 const TRANSACTIONS_STREAM = joinUrl(API_PREFIX, 'transactions/stream');
 
 const FORK_CHOICE = joinUrl(API_PREFIX, 'fork-choice');

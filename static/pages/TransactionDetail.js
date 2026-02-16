@@ -3,6 +3,7 @@ import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
+import { subscribeFork } from '../lib/fork.js';
 
 // ————— helpers —————
 const isNumber = (v) => typeof v === 'number' && !Number.isNaN(v);
@@ -485,6 +486,11 @@ export default function TransactionDetail({ parameters }) {
 
     const [tx, setTx] = useState(null);
     const [err, setErr] = useState(null); // { kind: 'invalid'|'not-found'|'network', msg: string }
+    const [fork, setFork] = useState(null);
+
+    useEffect(() => {
+        return subscribeFork((newFork) => setFork(newFork));
+    }, []);
 
     const pageTitle = useMemo(() => `Transaction ${shortenHex(transactionHash)}`, [transactionHash]);
     useEffect(() => {
@@ -500,12 +506,14 @@ export default function TransactionDetail({ parameters }) {
             return;
         }
 
+        if (fork == null) return;
+
         let alive = true;
         const controller = new AbortController();
 
         (async () => {
             try {
-                const res = await fetch(API.TRANSACTION_DETAIL_BY_HASH(transactionHash), {
+                const res = await fetch(API.TRANSACTION_DETAIL_BY_HASH(transactionHash, fork), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
@@ -527,7 +535,7 @@ export default function TransactionDetail({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [transactionHash, isValidHash]);
+    }, [transactionHash, isValidHash, fork]);
 
     return h(
         'main',

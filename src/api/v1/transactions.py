@@ -41,11 +41,11 @@ async def stream(
     return NDJsonStreamingResponse(ndjson_transactions_stream)
 
 
-async def get(request: NBERequest, transaction_hash: str) -> Response:
+async def get(request: NBERequest, transaction_hash: str, fork: int = Query(...)) -> Response:
     if not transaction_hash:
         return Response(status_code=NOT_FOUND)
     transaction_hash = dehexify(transaction_hash)
-    transaction = await request.app.state.transaction_repository.get_by_hash(transaction_hash)
+    transaction = await request.app.state.transaction_repository.get_by_hash(transaction_hash, fork=fork)
     return transaction.map(
         lambda _transaction: JSONResponse(TransactionRead.from_transaction(_transaction).model_dump(mode="json"))
     ).unwrap_or_else(lambda: Response(status_code=NOT_FOUND))

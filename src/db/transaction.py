@@ -51,12 +51,16 @@ class TransactionRepository:
             else:
                 return Empty()
 
-    async def get_by_hash(self, transaction_hash: bytes) -> Option[Transaction]:
-        statement = select(Transaction).where(Transaction.hash == transaction_hash)
+    async def get_by_hash(self, transaction_hash: bytes, *, fork: int) -> Option[Transaction]:
+        statement = (
+            select(Transaction)
+            .join(Block, Transaction.block_id == Block.id)
+            .where(Transaction.hash == transaction_hash, Block.fork == fork)
+        )
 
         with self.client.session() as session:
             result: Result[Transaction] = session.exec(statement)
-            if (transaction := result.one_or_none()) is not None:
+            if (transaction := result.first()) is not None:
                 return Some(transaction)
             else:
                 return Empty()
