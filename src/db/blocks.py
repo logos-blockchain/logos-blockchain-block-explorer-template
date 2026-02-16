@@ -7,6 +7,8 @@ from sqlalchemy import Result, Select
 from sqlalchemy.orm import aliased
 from sqlmodel import select
 
+from sqlalchemy import func as sa_func
+
 from db.clients import DbClient
 from models.block import Block
 
@@ -137,6 +139,58 @@ class BlockRepository:
 
             # Only add resolved blocks
             blocks_to_add = [block for block in blocks if block.hash in resolved]
+
+            # --- Fork assignment ---
+            if blocks_to_add:
+                # Build lookup of parent_block -> fork for parents already in DB
+                parent_forks: Dict[bytes, int] = {}
+                if parent_hashes:
+                    stmt = select(Block.hash, Block.fork).where(Block.hash.in_(parent_hashes))
+                    for phash, pfork in session.exec(stmt).all():
+                        parent_forks[phash] = pfork
+
+                # Also include fork info from blocks in this batch that are parents
+                for block in blocks_to_add:
+                    if block.hash in parent_hashes:
+                        parent_forks[block.hash] = block.fork
+
+                # Find which parents already have children in the DB
+                parent_hashes_in_batch = {b.parent_block for b in blocks_to_add}
+                parents_with_children: set[bytes] = set()
+                if parent_hashes_in_batch:
+                    stmt = select(Block.parent_block).where(
+                        Block.parent_block.in_(parent_hashes_in_batch)
+                    ).distinct()
+                    for ph in session.exec(stmt).all():
+                        parents_with_children.add(ph)
+
+                # Get current max fork across the whole DB
+                max_fork_result = session.exec(select(sa_func.max(Block.fork))).one_or_none()
+                next_fork = (max_fork_result or 0) + 1
+
+                # Also account for forks assigned within this batch
+                batch_children_count: Dict[bytes, int] = {}
+
+                for block in blocks_to_add:
+                    parent = block.parent_block
+                    already_has_child_in_db = parent in parents_with_children
+                    children_assigned_in_batch = batch_children_count.get(parent, 0)
+
+                    if already_has_child_in_db or children_assigned_in_batch > 0:
+                        # Another block with the same parent exists -> new fork
+                        block.fork = next_fork
+                        next_fork += 1
+                    elif parent in parent_forks:
+                        # No sibling -> inherit parent's fork
+                        block.fork = parent_forks[parent]
+                    else:
+                        # Genesis / chain root with no parent -> fork 0
+                        block.fork = 0
+
+                    batch_children_count[parent] = children_assigned_in_batch + 1
+                    # Make this block's fork available for its children in the batch
+                    parent_forks[block.hash] = block.fork
+
             if blocks_to_add:
                 session.add_all(blocks_to_add)
                 session.commit()
