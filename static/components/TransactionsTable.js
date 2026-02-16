@@ -100,7 +100,7 @@ function normalize(raw) {
 }
 
 // ---------- component ----------
-export default function TransactionsTable({ live }) {
+export default function TransactionsTable({ live, onDisableLive }) {
     const [transactions, setTransactions] = useState([]);
     const [page, setPage] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
@@ -191,6 +191,7 @@ export default function TransactionsTable({ live }) {
     // Go to a page
     const goToPage = (newPage) => {
         if (newPage >= 0 && fork != null) {
+            if (live) onDisableLive?.();
             fetchTransactions(newPage, fork);
         }
     };
@@ -298,9 +299,8 @@ export default function TransactionsTable({ live }) {
                 'button',
                 {
                     class: 'pill',
-                    disabled: live || page === 0 || loading,
+                    disabled: page === 0 || loading,
                     onClick: () => goToPage(page - 1),
-                    style: 'cursor:pointer;',
                 },
                 'Previous',
             ),
@@ -313,9 +313,8 @@ export default function TransactionsTable({ live }) {
                 'button',
                 {
                     class: 'pill',
-                    disabled: live || page >= totalPages - 1 || loading,
+                    disabled: page >= totalPages - 1 || loading,
                     onClick: () => goToPage(page + 1),
-                    style: 'cursor:pointer;',
                 },
                 'Next',
             ),

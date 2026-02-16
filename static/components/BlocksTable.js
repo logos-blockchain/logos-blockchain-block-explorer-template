@@ -25,7 +25,7 @@ const normalize = (raw) => {
     };
 };
 
-export default function BlocksTable({ live }) {
+export default function BlocksTable({ live, onDisableLive }) {
     const [blocks, setBlocks] = useState([]);
     const [page, setPage] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
@@ -118,6 +118,7 @@ export default function BlocksTable({ live }) {
     // Go to a page
     const goToPage = (newPage) => {
         if (newPage >= 0 && fork != null) {
+            if (live) onDisableLive?.();
             fetchBlocks(newPage, fork);
         }
     };
@@ -252,9 +253,8 @@ export default function BlocksTable({ live }) {
                 'button',
                 {
                     class: 'pill',
-                    disabled: live || page === 0 || loading,
+                    disabled: page === 0 || loading,
                     onClick: () => goToPage(page - 1),
-                    style: 'cursor:pointer;',
                 },
                 'Previous',
             ),
@@ -267,9 +267,8 @@ export default function BlocksTable({ live }) {
                 'button',
                 {
                     class: 'pill',
-                    disabled: live || page >= totalPages - 1 || loading,
+                    disabled: page >= totalPages - 1 || loading,
                     onClick: () => goToPage(page + 1),
-                    style: 'cursor:pointer;',
                 },
                 'Next',
             ),
