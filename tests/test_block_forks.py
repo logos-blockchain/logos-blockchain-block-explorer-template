@@ -327,8 +327,17 @@ def test_fork_choice_switches_on_overtake(client, repo):
 # --- Fork-filtered query tests ---
 
 
-def test_get_latest_filters_by_fork(client, repo):
-    """get_latest with fork filter only returns blocks from that fork."""
+def test_get_latest_follows_chain(client, repo):
+    """
+    get_latest follows the chain from the fork's tip back to genesis,
+    crossing fork boundaries.
+
+    genesis (fork 0) -> A (fork 0)
+                    \\-> B (fork 1)
+
+    Fork 0 chain: genesis, A
+    Fork 1 chain: genesis, B  (genesis is a shared ancestor)
+    """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
     asyncio.run(repo.create(genesis))
 
@@ -338,24 +347,29 @@ def test_get_latest_filters_by_fork(client, repo):
     b = make_block(b"\x03", parent=b"\x01", slot=1)
     asyncio.run(repo.create(b))
 
-    # Fork 0: genesis, A.  Fork 1: B (but B also shares genesis at fork 0... no, genesis is fork 0)
-    # Actually: genesis=fork0, A=fork0, B=fork1
     fork0_blocks = asyncio.run(repo.get_latest(10, fork=0))
     fork1_blocks = asyncio.run(repo.get_latest(10, fork=1))
 
     fork0_hashes = {b.hash for b in fork0_blocks}
     fork1_hashes = {b.hash for b in fork1_blocks}
 
-    assert b"\x01" in fork0_hashes  # genesis
-    assert b"\x02" in fork0_hashes  # A
-    assert b"\x03" not in fork0_hashes
+    # Fork 0 chain: genesis + A
+    assert fork0_hashes == {b"\x01", b"\x02"}
 
-    assert b"\x03" in fork1_hashes  # B
-    assert b"\x02" not in fork1_hashes
+    # Fork 1 chain: genesis + B (crosses fork boundary to include genesis)
+    assert fork1_hashes == {b"\x01", b"\x03"}
 
 
-def test_get_paginated_filters_by_fork(client, repo):
-    """get_paginated with fork filter only returns blocks from that fork."""
+def test_get_paginated_follows_chain(client, repo):
+    """
+    get_paginated follows the chain from the fork's tip back to genesis.
+
+    genesis (fork 0) -> A (fork 0) -> C (fork 0)
+                    \\-> B (fork 1)
+
+    Fork 0 chain: genesis, A, C  (count=3)
+    Fork 1 chain: genesis, B     (count=2, crosses fork boundary)
+    """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
     asyncio.run(repo.create(genesis))
 
@@ -365,10 +379,13 @@ def test_get_paginated_filters_by_fork(client, repo):
     b = make_block(b"\x03", parent=b"\x01", slot=1)
     asyncio.run(repo.create(b))
 
+    c = make_block(b"\x04", parent=b"\x02", slot=2)
+    asyncio.run(repo.create(c))
+
     blocks_f0, count_f0 = asyncio.run(repo.get_paginated(0, 10, fork=0))
     blocks_f1, count_f1 = asyncio.run(repo.get_paginated(0, 10, fork=1))
 
-    assert count_f0 == 2  # genesis + A
-    assert count_f1 == 1  # B only
-    assert {b.hash for b in blocks_f0} == {b"\x01", b"\x02"}
-    assert {b.hash for b in blocks_f1} == {b"\x03"}
+    assert count_f0 == 3  # genesis + A + C
+    assert count_f1 == 2  # genesis + B (crosses fork boundary)
+    assert {b.hash for b in blocks_f0} == {b"\x01", b"\x02", b"\x04"}
+    assert {b.hash for b in blocks_f1} == {b"\x01", b"\x03"}

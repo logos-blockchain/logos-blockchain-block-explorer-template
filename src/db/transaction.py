@@ -6,17 +6,18 @@ from sqlalchemy import Result, Select, func as sa_func
 from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import select
 
+from db.blocks import chain_block_ids_cte
 from db.clients import DbClient
 from models.block import Block
 from models.transactions.transaction import Transaction
 
 
 def get_latest_statement(limit: int, *, fork: int, output_ascending: bool, preload_relationships: bool) -> Select:
-    # Join with Block to order by Block's height and fetch the latest N transactions in descending order
+    chain = chain_block_ids_cte(fork=fork)
     base = (
         select(Transaction, Block.height.label("block__height"))
         .join(Block, Transaction.block_id == Block.id)
-        .where(Block.fork == fork)
+        .join(chain, Block.id == chain.c.id)
         .order_by(Block.height.desc(), Transaction.id.desc())
         .limit(limit)
     )
@@ -52,10 +53,12 @@ class TransactionRepository:
                 return Empty()
 
     async def get_by_hash(self, transaction_hash: bytes, *, fork: int) -> Option[Transaction]:
+        chain = chain_block_ids_cte(fork=fork)
         statement = (
             select(Transaction)
             .join(Block, Transaction.block_id == Block.id)
-            .where(Transaction.hash == transaction_hash, Block.fork == fork)
+            .join(chain, Block.id == chain.c.id)
+            .where(Transaction.hash == transaction_hash)
         )
 
         with self.client.session() as session:
@@ -80,26 +83,26 @@ class TransactionRepository:
     async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Transaction], int]:
         """
         Get transactions with pagination, ordered by block height descending (newest first).
+        Follows the chain from the fork's tip back to genesis across fork boundaries.
         Returns a tuple of (transactions, total_count).
         """
         offset = page * page_size
+        chain = chain_block_ids_cte(fork=fork)
 
         with self.client.session() as session:
-            # Get total count for this fork
             count_statement = (
                 select(sa_func.count())
                 .select_from(Transaction)
                 .join(Block, Transaction.block_id == Block.id)
-                .where(Block.fork == fork)
+                .join(chain, Block.id == chain.c.id)
             )
             total_count = session.exec(count_statement).one()
 
-            # Get paginated transactions
             statement = (
                 select(Transaction)
                 .options(selectinload(Transaction.block))
                 .join(Block, Transaction.block_id == Block.id)
-                .where(Block.fork == fork)
+                .join(chain, Block.id == chain.c.id)
                 .order_by(Block.height.desc(), Transaction.id.desc())
                 .offset(offset)
                 .limit(page_size)

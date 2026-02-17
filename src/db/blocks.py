@@ -16,9 +16,42 @@ from models.block import Block
 logger = logging.getLogger(__name__)
 
 
+def chain_block_ids_cte(*, fork: int):
+    """
+    Recursive CTE that collects all block IDs on the chain from the tip
+    of the given fork back to genesis, following parent_block links.
+
+    This correctly traverses across fork boundaries — e.g. if fork 1 diverged
+    from fork 0 at height 50, the CTE returns fork 1 blocks (50+) AND the
+    ancestor fork 0 blocks (0–49).
+    """
+    tip_hash = (
+        select(Block.hash)
+        .where(Block.fork == fork)
+        .order_by(Block.height.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    base = select(Block.id, Block.hash, Block.parent_block).where(
+        Block.hash == tip_hash
+    )
+    cte = base.cte(name="chain", recursive=True)
+
+    recursive = select(Block.id, Block.hash, Block.parent_block).where(
+        Block.hash == cte.c.parent_block
+    )
+    return cte.union_all(recursive)
+
+
 def get_latest_statement(limit: int, *, fork: int, output_ascending: bool = True) -> Select:
-    # Fetch the latest N blocks in descending height order
-    base = select(Block).where(Block.fork == fork).order_by(Block.height.desc()).limit(limit)
+    chain = chain_block_ids_cte(fork=fork)
+    base = (
+        select(Block)
+        .join(chain, Block.id == chain.c.id)
+        .order_by(Block.height.desc())
+        .limit(limit)
+    )
     if not output_ascending:
         return base
 
@@ -249,19 +282,19 @@ class BlockRepository:
     async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Block], int]:
         """
         Get blocks with pagination, ordered by height descending (newest first).
+        Follows the chain from the fork's tip back to genesis across fork boundaries.
         Returns a tuple of (blocks, total_count).
         """
         offset = page * page_size
+        chain = chain_block_ids_cte(fork=fork)
 
         with self.client.session() as session:
-            # Get total count for this fork
-            count_statement = select(sa_func.count()).select_from(Block).where(Block.fork == fork)
+            count_statement = select(sa_func.count()).select_from(chain)
             total_count = session.exec(count_statement).one()
 
-            # Get paginated blocks
             statement = (
                 select(Block)
-                .where(Block.fork == fork)
+                .join(chain, Block.id == chain.c.id)
                 .order_by(Block.height.desc())
                 .offset(offset)
                 .limit(page_size)
