@@ -1,0 +1,13 @@
+[Unit]
+Description=Logos Blockchain Block Explorer
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/src/logos-blockchain-block-explorer-template
+ExecStart=/root/.local/bin/uv run python src/main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
