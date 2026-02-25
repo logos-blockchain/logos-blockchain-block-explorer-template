@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-explorer
+  IMAGE_NAME: logos-blockchain-explorer
 
 jobs:
   build-and-push:

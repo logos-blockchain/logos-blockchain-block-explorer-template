@@ -9,6 +9,15 @@ import TransactionDetailPage from './pages/TransactionDetail.js';
 
 const ROOT = document.getElementById('app');
 
+ //  Detect the Base Path from the HTML <base> tag.
+ //  If the tag is missing or equals "__BASE_PATH__", default to root "/".
+const BASE_PATH = (() => {
+    const baseHref = document.querySelector('base')?.getAttribute('href');
+    if (!baseHref || baseHref === "__BASE_PATH__") return '/';
+
+    return baseHref.endsWith('/') ? baseHref : `${baseHref}/`;
+})();
+
 function LoadingScreen() {
     return h('main', { class: 'wrap' }, h('p', null, 'Loading...'));
 }
@@ -47,7 +56,9 @@ function AppRouter() {
         re: route.re,
         view: route.view,
     }));
-    return h(Router, { routes: wired });
+
+    // Pass the base prop to the Router so it knows where internal links start
+    return h(Router, { routes: wired, base: BASE_PATH });
 }
 
 try {
