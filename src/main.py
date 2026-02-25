@@ -9,7 +9,8 @@ from logs import setup_logging
 
 
 async def main():
-    app = create_app()
+    base_path = getenv("NBE_BASE_PATH", "").strip().rstrip("/")
+    app = create_app(base_path)
 
     host = getenv("NBE_HOST", "0.0.0.0")
     port = int(getenv("NBE_PORT", 8000))
