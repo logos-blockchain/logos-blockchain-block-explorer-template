@@ -1,4 +1,4 @@
-from typing import List, Self
+from typing import List, Optional, Self
 
 from core.models import NbeSchema
 from core.types import HexBytes
@@ -16,6 +16,8 @@ class BlockRead(NbeSchema):
     fork: int
     block_root: HexBytes
     proof_of_leadership: ProofOfLeadership
+    lib: Optional[HexBytes] = None
+    tip: Optional[HexBytes] = None
     transactions: List[Transaction]
 
     @classmethod
@@ -29,5 +31,7 @@ class BlockRead(NbeSchema):
             fork=block.fork,
             block_root=block.block_root,
             proof_of_leadership=block.proof_of_leadership,
+            lib=block.lib,
+            tip=block.tip,
             transactions=block.transactions,
         )

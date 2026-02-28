@@ -138,6 +138,8 @@ export default function BlockDetailPage({ parameters }) {
     const blockRoot = block?.block_root ?? header?.block_root ?? '';
     const currentBlockHash = block?.hash ?? header?.hash ?? '';
     const parentHash = block?.parent_block_hash ?? header?.parent_block ?? '';
+    const lib = block?.lib ?? '';
+    const tip = block?.tip ?? '';
 
     return h(
         'main',
@@ -254,6 +256,60 @@ export default function BlockDetailPage({ parameters }) {
                                       '—',
                                   ),
                             h(CopyPill, { text: parentHash }),
+                        ),
+
+                        // LIB
+                        h('div', null, h('b', null, 'LIB:')),
+                        h(
+                            'div',
+                            { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
+                            lib
+                                ? h(
+                                      'a',
+                                      {
+                                          class: 'pill mono linkish',
+                                          href: PAGE.BLOCK_DETAIL(lib),
+                                          title: String(lib),
+                                          style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                      },
+                                      shortenHex(lib),
+                                  )
+                                : h(
+                                      'span',
+                                      {
+                                          class: 'pill mono',
+                                          style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                      },
+                                      '—',
+                                  ),
+                            lib && h(CopyPill, { text: lib }),
+                        ),
+
+                        // Tip
+                        h('div', null, h('b', null, 'Tip:')),
+                        h(
+                            'div',
+                            { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
+                            tip
+                                ? h(
+                                      'a',
+                                      {
+                                          class: 'pill mono linkish',
+                                          href: PAGE.BLOCK_DETAIL(tip),
+                                          title: String(tip),
+                                          style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                      },
+                                      shortenHex(tip),
+                                  )
+                                : h(
+                                      'span',
+                                      {
+                                          class: 'pill mono',
+                                          style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                      },
+                                      '—',
+                                  ),
+                            tip && h(CopyPill, { text: tip }),
                         ),
                     ),
                 ),

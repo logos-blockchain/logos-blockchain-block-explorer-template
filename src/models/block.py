@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, List, Self
+from typing import TYPE_CHECKING, List, Optional, Self
 
 from sqlalchemy import Column
 from sqlmodel import Field, Relationship
@@ -30,6 +30,8 @@ class Block(TimestampedModel, table=True):
     proof_of_leadership: ProofOfLeadership = Field(
         sa_column=Column(PydanticJsonColumn(ProofOfLeadership), nullable=False)
     )
+    lib: Optional[HexBytes] = Field(default=None, nullable=True)
+    tip: Optional[HexBytes] = Field(default=None, nullable=True)
 
     # --- Relationships --- #
 
