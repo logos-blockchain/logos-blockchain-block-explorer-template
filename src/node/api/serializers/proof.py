@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Annotated, Any, Self, Union
+from typing import Annotated, Any, Literal, Self, Union
 
 from pydantic import BeforeValidator, Field, RootModel
 
@@ -23,6 +23,8 @@ class OperationProofSerializer(EnforceSubclassFromRandom, ABC):
 
 
 class NoProofSerializer(OperationProofSerializer):
+    root: Literal["NoProof"]
+
     def into_operation_proof(self) -> NbeSignature:
         return NoProof.model_validate({})
 

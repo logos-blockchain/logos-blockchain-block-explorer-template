@@ -1,8 +1,9 @@
 import hashlib
 import json
-from typing import List, Self
+from typing import Any, List, Self
 
 from pydantic import Field
+from pydantic.config import ExtraValues
 
 from core.models import NbeSerializer
 from models.transactions.transaction import Transaction
@@ -41,6 +42,23 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
         alias="ops_proofs", description="List of OperationProof. Order should match `Self::transaction::operations`."
     )
     ledger_transaction_proof: Groth16ProofSerializer = Field(alias="ledger_tx_proof", description="Groth16 proof.")
+
+    @classmethod
+    def model_validate_json(
+        cls,
+        json_data: str | bytes | bytearray,
+        *,
+        strict: bool | None = None,
+        extra: ExtraValues | None = None,
+        context: Any | None = None,
+        by_alias: bool | None = None,
+        by_name: bool | None = None,
+    ) -> Self:
+        print(f"Validating JSON data for {cls.__name__} with by_alias={by_alias}, by_name={by_name}")
+        print(f"JSON data: {json_data}")
+        return super().model_validate_json(
+            json_data, strict=strict, extra=extra, context=context, by_alias=by_alias, by_name=by_name
+        )
 
     def _compute_hash(self) -> bytes:
         data = self.transaction.model_dump(mode="json")
