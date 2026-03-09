@@ -22,7 +22,7 @@ class OperationProofSerializer(EnforceSubclassFromRandom, ABC):
         raise NotImplementedError
 
 
-class NoProofSerializer(OperationProofSerializer):
+class NoProofSerializer(OperationProofSerializer, NbeSerializer):
     root: Literal["NoProof"]
 
     def into_operation_proof(self) -> NbeSignature:
@@ -100,7 +100,7 @@ def _parse_proof(data: Any) -> OperationProofSerializer:
 
 
 OperationProofSerializerVariants = Union[
-    NoProof, Ed25519SignatureSerializer, ZkSignatureSerializer, ZkAndEd25519SignaturesSerializer
+    NoProofSerializer, Ed25519SignatureSerializer, ZkSignatureSerializer, ZkAndEd25519SignaturesSerializer
 ]
 OperationProofSerializerField = Annotated[
     OperationProofSerializerVariants,
