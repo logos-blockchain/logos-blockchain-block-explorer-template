@@ -116,7 +116,7 @@ class ChannelSetKeysSerializer(OperationContentSerializer):
 class ChannelDepositSerializer(OperationContentSerializer):
     channel_id: BytesFromHex = Field(description="Channel ID in hex format.")
     amount: int
-    metadata: BytesFromHex = Field(description="Metadata in hex format.")
+    metadata: BytesFromIntArray = Field(description="Metadata in hex format.")
 
     def into_operation_content(self) -> ChannelDeposit:
         return ChannelDeposit.model_validate(
