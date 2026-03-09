@@ -47,18 +47,18 @@ async def list_transactions(
     page_size: int = Query(10, ge=1, le=100, alias="page-size"),
     fork: int = Query(...),
 ) -> Response:
-    transactions, total_count = await request.app.state.transaction_repository.get_paginated(
-        page, page_size, fork=fork
-    )
+    transactions, total_count = await request.app.state.transaction_repository.get_paginated(page, page_size, fork=fork)
     total_pages = (total_count + page_size - 1) // page_size
 
-    return JSONResponse({
-        "transactions": [TransactionRead.from_transaction(tx).model_dump(mode="json") for tx in transactions],
-        "page": page,
-        "page_size": page_size,
-        "total_count": total_count,
-        "total_pages": total_pages,
-    })
+    return JSONResponse(
+        {
+            "transactions": [TransactionRead.from_transaction(tx).model_dump(mode="json") for tx in transactions],
+            "page": page,
+            "page_size": page_size,
+            "total_count": total_count,
+            "total_pages": total_pages,
+        }
+    )
 
 
 async def get(request: NBERequest, transaction_hash: str, fork: int = Query(...)) -> Response:

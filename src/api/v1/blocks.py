@@ -24,13 +24,15 @@ async def list_blocks(
     blocks, total_count = await request.app.state.block_repository.get_paginated(page, page_size, fork=fork)
     total_pages = (total_count + page_size - 1) // page_size  # ceiling division
 
-    return JSONResponse({
-        "blocks": [BlockRead.from_block(block).model_dump(mode="json") for block in blocks],
-        "page": page,
-        "page_size": page_size,
-        "total_count": total_count,
-        "total_pages": total_pages,
-    })
+    return JSONResponse(
+        {
+            "blocks": [BlockRead.from_block(block).model_dump(mode="json") for block in blocks],
+            "page": page,
+            "page_size": page_size,
+            "total_count": total_count,
+            "total_pages": total_pages,
+        }
+    )
 
 
 async def _get_blocks_stream_serialized(

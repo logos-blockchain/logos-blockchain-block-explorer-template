@@ -9,11 +9,11 @@ import TransactionDetailPage from './pages/TransactionDetail.js';
 
 const ROOT = document.getElementById('app');
 
- //  Detect the Base Path from the HTML <base> tag.
- //  If the tag is missing or equals "__BASE_PATH__", default to root "/".
+//  Detect the Base Path from the HTML <base> tag.
+//  If the tag is missing or equals "__BASE_PATH__", default to root "/".
 const BASE_PATH = (() => {
     const baseHref = document.querySelector('base')?.getAttribute('href');
-    if (!baseHref || baseHref === "__BASE_PATH__") return '/';
+    if (!baseHref || baseHref === '__BASE_PATH__') return '/';
 
     return baseHref.endsWith('/') ? baseHref : `${baseHref}/`;
 })();

@@ -74,7 +74,9 @@ class TransactionRepository:
         if limit == 0:
             return []
 
-        statement = get_latest_statement(limit, fork=fork, output_ascending=ascending, preload_relationships=preload_relationships)
+        statement = get_latest_statement(
+            limit, fork=fork, output_ascending=ascending, preload_relationships=preload_relationships
+        )
 
         with self.client.session() as session:
             results: Result[Transaction] = session.exec(statement)

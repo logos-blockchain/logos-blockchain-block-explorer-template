@@ -259,6 +259,7 @@ def test_batch_with_fork_and_chain(client, repo):
 def test_fork_choice_empty_db(client, repo):
     """Fork choice returns Empty when no blocks exist."""
     from rusty_results import Empty
+
     result = asyncio.run(repo.get_fork_choice())
     assert isinstance(result, Empty)
 

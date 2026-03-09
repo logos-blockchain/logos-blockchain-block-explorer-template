@@ -155,7 +155,9 @@ async def subscribe_to_new_blocks(app: "NBE"):
                     # Re-check if parent now exists after backfill
                     parent_exists = (await app.state.block_repository.get_by_hash(block.parent_block)).is_some
                     if not parent_exists:
-                        logger.warning(f"Parent block still not found after backfill for block at slot {block.slot}. Skipping block.")
+                        logger.warning(
+                            f"Parent block still not found after backfill for block at slot {block.slot}. Skipping block."
+                        )
                         continue
 
                 # Capture values before create() detaches the block from the session

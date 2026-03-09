@@ -210,7 +210,12 @@ export default function BlocksTable({ live, onDisableLive }) {
         h(
             'div',
             { class: 'card-header', style: 'display:flex; justify-content:space-between; align-items:center;' },
-            h('div', null, h('strong', null, 'Blocks '), !live && totalCount > 0 && h('span', { class: 'pill' }, String(totalCount))),
+            h(
+                'div',
+                null,
+                h('strong', null, 'Blocks '),
+                !live && totalCount > 0 && h('span', { class: 'pill' }, String(totalCount)),
+            ),
         ),
         h(
             'div',

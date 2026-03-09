@@ -40,7 +40,9 @@ export default function HomeView() {
                 live ? 'LIVE \u2022' : 'LIVE',
             ),
         ),
-        h('section', { class: 'two-columns twocol' },
+        h(
+            'section',
+            { class: 'two-columns twocol' },
             h(BlocksTable, { live, onDisableLive: () => setLive(false) }),
             h(TransactionsTable, { live, onDisableLive: () => setLive(false) }),
         ),

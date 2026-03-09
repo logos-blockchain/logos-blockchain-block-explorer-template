@@ -262,7 +262,12 @@ export default function TransactionsTable({ live, onDisableLive }) {
         h(
             'div',
             { class: 'card-header', style: 'display:flex; justify-content:space-between; align-items:center;' },
-            h('div', null, h('strong', null, 'Transactions '), !live && totalCount > 0 && h('span', { class: 'pill' }, String(totalCount))),
+            h(
+                'div',
+                null,
+                h('strong', null, 'Transactions '),
+                !live && totalCount > 0 && h('span', { class: 'pill' }, String(totalCount)),
+            ),
         ),
         h(
             'div',
@@ -310,7 +315,11 @@ export default function TransactionsTable({ live, onDisableLive }) {
             h(
                 'span',
                 { style: 'color:var(--muted); font-size:13px;' },
-                live ? 'Streaming live transactions...' : totalPages > 0 ? `Page ${page + 1} of ${totalPages}` : 'No transactions',
+                live
+                    ? 'Streaming live transactions...'
+                    : totalPages > 0
+                      ? `Page ${page + 1} of ${totalPages}`
+                      : 'No transactions',
             ),
             h(
                 'button',

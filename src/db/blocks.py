@@ -3,15 +3,12 @@ from asyncio import sleep
 from typing import AsyncIterator, Dict, List
 
 from rusty_results import Empty, Option, Some
-from sqlalchemy import Result, Select
+from sqlalchemy import Result, Select, func as sa_func
 from sqlalchemy.orm import aliased
 from sqlmodel import select
 
-from sqlalchemy import func as sa_func
-
 from db.clients import DbClient
 from models.block import Block
-
 
 logger = logging.getLogger(__name__)
 
@@ -25,33 +22,18 @@ def chain_block_ids_cte(*, fork: int):
     from fork 0 at height 50, the CTE returns fork 1 blocks (50+) AND the
     ancestor fork 0 blocks (0–49).
     """
-    tip_hash = (
-        select(Block.hash)
-        .where(Block.fork == fork)
-        .order_by(Block.height.desc())
-        .limit(1)
-        .scalar_subquery()
-    )
+    tip_hash = select(Block.hash).where(Block.fork == fork).order_by(Block.height.desc()).limit(1).scalar_subquery()
 
-    base = select(Block.id, Block.hash, Block.parent_block).where(
-        Block.hash == tip_hash
-    )
+    base = select(Block.id, Block.hash, Block.parent_block).where(Block.hash == tip_hash)
     cte = base.cte(name="chain", recursive=True)
 
-    recursive = select(Block.id, Block.hash, Block.parent_block).where(
-        Block.hash == cte.c.parent_block
-    )
+    recursive = select(Block.id, Block.hash, Block.parent_block).where(Block.hash == cte.c.parent_block)
     return cte.union_all(recursive)
 
 
 def get_latest_statement(limit: int, *, fork: int, output_ascending: bool = True) -> Select:
     chain = chain_block_ids_cte(fork=fork)
-    base = (
-        select(Block)
-        .join(chain, Block.id == chain.c.id)
-        .order_by(Block.height.desc())
-        .limit(limit)
-    )
+    base = select(Block).join(chain, Block.id == chain.c.id).order_by(Block.height.desc()).limit(limit)
     if not output_ascending:
         return base
 
@@ -191,9 +173,7 @@ class BlockRepository:
                 parent_hashes_in_batch = {b.parent_block for b in blocks_to_add}
                 parents_with_children: set[bytes] = set()
                 if parent_hashes_in_batch:
-                    stmt = select(Block.parent_block).where(
-                        Block.parent_block.in_(parent_hashes_in_batch)
-                    ).distinct()
+                    stmt = select(Block.parent_block).where(Block.parent_block.in_(parent_hashes_in_batch)).distinct()
                     for ph in session.exec(stmt).all():
                         parents_with_children.add(ph)
 
@@ -310,9 +290,7 @@ class BlockRepository:
 
         while True:
             statement = (
-                select(Block)
-                .where(Block.fork == fork, Block.height >= height_cursor)
-                .order_by(Block.height.asc())
+                select(Block).where(Block.fork == fork, Block.height >= height_cursor).order_by(Block.height.asc())
             )
 
             with self.client.session() as session:

@@ -83,5 +83,9 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
         n = len(transaction.operations_contents)
         operations_proofs = [OperationProofSerializer.from_random() for _ in range(n)]
         return cls.model_validate(
-            {"mantle_tx": transaction, "ops_proofs": operations_proofs, "ledger_tx_proof": Groth16ProofSerializer.from_random()}
+            {
+                "mantle_tx": transaction,
+                "ops_proofs": operations_proofs,
+                "ledger_tx_proof": Groth16ProofSerializer.from_random(),
+            }
         )

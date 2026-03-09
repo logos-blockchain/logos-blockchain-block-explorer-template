@@ -15,8 +15,7 @@ const TRANSACTIONS_STREAM = joinUrl(API_PREFIX, 'transactions/stream');
 const FORK_CHOICE = joinUrl(API_PREFIX, 'fork-choice');
 
 const BLOCK_DETAIL_BY_HASH = (hash) => joinUrl(API_PREFIX, 'blocks', encodeHash(hash));
-const BLOCKS_STREAM = (fork) =>
-    `${joinUrl(API_PREFIX, 'blocks/stream')}?fork=${encodeURIComponent(fork)}`;
+const BLOCKS_STREAM = (fork) => `${joinUrl(API_PREFIX, 'blocks/stream')}?fork=${encodeURIComponent(fork)}`;
 const BLOCKS_LIST = (page, pageSize, fork) =>
     `${joinUrl(API_PREFIX, 'blocks/list')}?page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}&fork=${encodeURIComponent(fork)}`;
 

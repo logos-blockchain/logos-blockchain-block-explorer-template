@@ -319,10 +319,7 @@ function tryDecodeUtf8Hex(hex) {
 }
 
 /** Human-friendly label for a content field key */
-const fieldLabel = (key) =>
-    key
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+const fieldLabel = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 /** Render the value of a single content field */
 function FieldValue({ value }) {
@@ -390,10 +387,16 @@ function OperationProof({ proof }) {
         entries.length > 0 &&
             h(
                 'div',
-                { style: 'margin-top:4px; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; align-items:baseline;' },
+                {
+                    style: 'margin-top:4px; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; align-items:baseline;',
+                },
                 ...entries.flatMap(([key, value]) => [
                     h('span', { style: 'color:var(--muted); font-size:12px; white-space:nowrap;' }, fieldLabel(key)),
-                    h('span', { class: 'mono', style: 'font-size:12px; overflow-wrap:anywhere; word-break:break-all;' }, renderBytes(value)),
+                    h(
+                        'span',
+                        { class: 'mono', style: 'font-size:12px; overflow-wrap:anywhere; word-break:break-all;' },
+                        renderBytes(value),
+                    ),
                 ]),
             ),
     );
@@ -562,6 +565,13 @@ export default function TransactionDetail({ parameters }) {
         !tx && !err && h('p', null, 'Loading…'),
 
         // Success
-        tx && h(Fragment, null, h(Summary, { tx }), h(Operations, { operations: tx.operations }), h(Ledger, { ledger: tx.ledger })),
+        tx &&
+            h(
+                Fragment,
+                null,
+                h(Summary, { tx }),
+                h(Operations, { operations: tx.operations }),
+                h(Ledger, { ledger: tx.ledger }),
+            ),
     );
 }
