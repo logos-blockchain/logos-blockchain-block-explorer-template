@@ -70,6 +70,12 @@ function opPreview(op) {
         return `${type}(${chanShort}\u2026, ${nKeys} keys)`;
     }
 
+    if (type === 'DepositOp' && content) {
+        const chanShort = typeof content.channel_id === 'string' ? content.channel_id.slice(0, 8) : '?';
+        const amount = content.amount != null ? content.amount : '?';
+        return `${type}(${chanShort}\u2026, ${amount})`;
+    }
+
     return type;
 }
 

@@ -8,6 +8,7 @@ from pydantic import BeforeValidator, Field
 from core.models import NbeSerializer
 from models.transactions.operations.contents import (
     ChannelBlob,
+    ChannelDeposit,
     ChannelInscribe,
     ChannelSetKeys,
     LeaderClaim,
@@ -221,6 +222,31 @@ class LeaderClaimSerializer(OperationContentSerializer):
         )
 
 
+class ChannelDepositSerializer(OperationContentSerializer):
+    channel_id: BytesFromHex = Field(description="Channel ID in hex format.")
+    amount: int
+    metadata: BytesFromHex = Field(description="Metadata in hex format.")
+
+    def into_operation_content(self) -> ChannelDeposit:
+        return ChannelDeposit.model_validate(
+            {
+                "channel_id": self.channel_id,
+                "amount": self.amount,
+                "metadata": self.metadata,
+            }
+        )
+
+    @classmethod
+    def from_random(cls) -> Self:
+        return cls.model_validate(
+            {
+                "channel_id": random_bytes(32).hex(),
+                "amount": randint(1, 1_000_000),
+                "metadata": random_bytes(32).hex(),
+            }
+        )
+
+
 OPCODE_TO_SERIALIZER: dict[int, type[OperationContentSerializer]] = {
     0: ChannelInscribeSerializer,
     1: ChannelBlobSerializer,
@@ -229,6 +255,7 @@ OPCODE_TO_SERIALIZER: dict[int, type[OperationContentSerializer]] = {
     4: SDPWithdrawSerializer,
     5: SDPActiveSerializer,
     6: LeaderClaimSerializer,
+    7: ChannelDepositSerializer,
 }
 
 
@@ -253,6 +280,7 @@ type OperationContentSerializerVariants = Union[
     SDPWithdrawSerializer,
     SDPActiveSerializer,
     LeaderClaimSerializer,
+    ChannelDepositSerializer,
 ]
 OperationContentSerializerField = Annotated[
     OperationContentSerializerVariants,

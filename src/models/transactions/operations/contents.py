@@ -9,6 +9,7 @@ class ContentType(Enum):
     CHANNEL_INSCRIBE = "ChannelInscribe"
     CHANNEL_BLOB = "ChannelBlob"
     CHANNEL_SET_KEYS = "ChannelSetKeys"
+    CHANNEL_DEPOSIT = "ChannelDeposit"
     SDP_DECLARE = "SDPDeclare"
     SDP_WITHDRAW = "SDPWithdraw"
     SDP_ACTIVE = "SDPActive"
@@ -17,6 +18,13 @@ class ContentType(Enum):
 
 class NbeContent(NbeSchema):
     type: str
+
+
+class ChannelDeposit(NbeContent):
+    type: Literal["ChannelDeposit"] = "ChannelDeposit"
+    channel_id: HexBytes
+    amount: int
+    metadata: HexBytes
 
 
 class ChannelInscribe(NbeContent):
@@ -77,4 +85,6 @@ class LeaderClaim(NbeContent):
     mantle_tx_hash: HexBytes
 
 
-OperationContent = ChannelInscribe | ChannelBlob | ChannelSetKeys | SDPDeclare | SDPWithdraw | SDPActive | LeaderClaim
+OperationContent = (
+    ChannelInscribe | ChannelBlob | ChannelSetKeys | SDPDeclare | SDPWithdraw | SDPActive | LeaderClaim | ChannelDeposit
+)
