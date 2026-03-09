@@ -15,6 +15,10 @@ class NbeSignature(NbeSchema):
     type: str
 
 
+class NoProof(NbeSignature):
+    type: Literal["NoProof"] = "NoProof"
+
+
 class Ed25519Signature(NbeSignature):
     type: Literal["Ed25519"] = "Ed25519"
     signature: HexBytes
@@ -31,4 +35,4 @@ class ZkAndEd25519Signature(NbeSignature):
     ed25519_signature: HexBytes
 
 
-OperationProof = Ed25519Signature | ZkSignature | ZkAndEd25519Signature
+OperationProof = NoProof | Ed25519Signature | ZkSignature | ZkAndEd25519Signature

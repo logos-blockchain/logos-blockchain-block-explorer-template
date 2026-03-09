@@ -7,6 +7,7 @@ from core.models import NbeSerializer
 from models.transactions.operations.proofs import (
     Ed25519Signature,
     NbeSignature,
+    NoProof,
     ZkAndEd25519Signature,
     ZkSignature,
 )
@@ -19,6 +20,11 @@ class OperationProofSerializer(EnforceSubclassFromRandom, ABC):
     @abstractmethod
     def into_operation_proof(cls) -> NbeSignature:
         raise NotImplementedError
+
+
+class NoProofSerializer(OperationProofSerializer):
+    def into_operation_proof(self) -> NbeSignature:
+        return NoProof.model_validate({})
 
 
 class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[bytes]):
@@ -74,6 +80,7 @@ class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
 
 
 PROOF_TAG_TO_SERIALIZER = {
+    "NoProof": NoProofSerializer,
     "Ed25519Sig": Ed25519SignatureSerializer,
     "ZkSig": ZkSignatureSerializer,
     "ZkAndEd25519Sigs": ZkAndEd25519SignaturesSerializer,
@@ -91,7 +98,7 @@ def _parse_proof(data: Any) -> OperationProofSerializer:
 
 
 OperationProofSerializerVariants = Union[
-    Ed25519SignatureSerializer, ZkSignatureSerializer, ZkAndEd25519SignaturesSerializer
+    NoProof, Ed25519SignatureSerializer, ZkSignatureSerializer, ZkAndEd25519SignaturesSerializer
 ]
 OperationProofSerializerField = Annotated[
     OperationProofSerializerVariants,
