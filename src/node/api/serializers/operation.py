@@ -113,6 +113,31 @@ class ChannelSetKeysSerializer(OperationContentSerializer):
         )
 
 
+class ChannelDepositSerializer(OperationContentSerializer):
+    channel_id: BytesFromHex = Field(description="Channel ID in hex format.")
+    amount: int
+    metadata: BytesFromHex = Field(description="Metadata in hex format.")
+
+    def into_operation_content(self) -> ChannelDeposit:
+        return ChannelDeposit.model_validate(
+            {
+                "channel_id": self.channel_id,
+                "amount": self.amount,
+                "metadata": self.metadata,
+            }
+        )
+
+    @classmethod
+    def from_random(cls) -> Self:
+        return cls.model_validate(
+            {
+                "channel_id": random_bytes(32).hex(),
+                "amount": randint(1, 1_000_000),
+                "metadata": random_bytes(32).hex(),
+            }
+        )
+
+
 class SDPDeclareServiceType(Enum):
     BN = "BN"
     DA = "DA"
@@ -222,40 +247,15 @@ class LeaderClaimSerializer(OperationContentSerializer):
         )
 
 
-class ChannelDepositSerializer(OperationContentSerializer):
-    channel_id: BytesFromHex = Field(description="Channel ID in hex format.")
-    amount: int
-    metadata: BytesFromHex = Field(description="Metadata in hex format.")
-
-    def into_operation_content(self) -> ChannelDeposit:
-        return ChannelDeposit.model_validate(
-            {
-                "channel_id": self.channel_id,
-                "amount": self.amount,
-                "metadata": self.metadata,
-            }
-        )
-
-    @classmethod
-    def from_random(cls) -> Self:
-        return cls.model_validate(
-            {
-                "channel_id": random_bytes(32).hex(),
-                "amount": randint(1, 1_000_000),
-                "metadata": random_bytes(32).hex(),
-            }
-        )
-
-
 OPCODE_TO_SERIALIZER: dict[int, type[OperationContentSerializer]] = {
     0: ChannelInscribeSerializer,
-    1: ChannelBlobSerializer,
+    1: ChannelBlobSerializer,  # Doesn't exist (anymore?) in the Logos Blockchain codebase
     2: ChannelSetKeysSerializer,
-    3: SDPDeclareSerializer,
-    4: SDPWithdrawSerializer,
-    5: SDPActiveSerializer,
-    6: LeaderClaimSerializer,
-    7: ChannelDepositSerializer,
+    3: ChannelDepositSerializer,
+    32: SDPDeclareSerializer,
+    33: SDPWithdrawSerializer,
+    34: SDPActiveSerializer,
+    48: LeaderClaimSerializer,
 }
 
 
