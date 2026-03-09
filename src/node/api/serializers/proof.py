@@ -22,7 +22,7 @@ class OperationProofSerializer(EnforceSubclassFromRandom, ABC):
         raise NotImplementedError
 
 
-class NoProofSerializer(OperationProofSerializer, NbeSerializer):
+class NoProofSerializer(OperationProofSerializer, RootModel[str]):
     root: Literal["NoProof"]
 
     def into_operation_proof(self) -> NbeSignature:
