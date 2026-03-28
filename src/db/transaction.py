@@ -151,13 +151,13 @@ class TransactionRepository:
         page_size: int = 50,
     ) -> tuple[List[Transaction], int]:
         """
-        Search transactions by hash (partial match).
+        Search transactions by hash, channel_id, or inscription.
         Returns (transactions, total_count).
         """
         offset = page * page_size
         chain = chain_block_ids_cte(fork=fork)
 
-        # Build search condition: match hash (case-insensitive, partial)
+        # Build search condition: match hash, channel_id, or inscription (case-insensitive, partial)
         search_term = query.lower()
 
         with self.client.session() as session:
@@ -171,12 +171,48 @@ class TransactionRepository:
             )
             all_transactions = session.exec(all_statement).all()
 
-            # Filter in Python for hash matching
+            # Filter in Python for hash, channel, and inscription matching
             filtered = []
             for tx in all_transactions:
-                # Convert hash bytes to hex string and check if search term is in it
+                # Check hash
                 hex_hash = tx.hash.hex().lower() if hasattr(tx.hash, 'hex') else bytes(tx.hash).hex().lower()
-                if search_term in hex_hash:
+                
+                # Check channel_id and inscription in operations
+                channel_matches = []
+                inscription_matches = []
+                
+                if hasattr(tx, 'operations') and tx.operations:
+                    for op in tx.operations:
+                        if hasattr(op, 'content') and op.content:
+                            content = op.content
+                            
+                            # Check channel_id (from ChannelInscribe, ChannelBlob, ChannelSetKeys)
+                            channel_id = content.get('channel_id') or content.get('channel')
+                            if channel_id and isinstance(channel_id, str):
+                                channel_id_lower = channel_id.lower()
+                                if search_term in channel_id_lower:
+                                    channel_matches.append(channel_id)
+                            
+                            # Check inscription (from ChannelInscribe)
+                            inscription = content.get('inscription')
+                            if inscription and isinstance(inscription, str):
+                                # Check hex inscription
+                                if search_term in inscription.lower():
+                                    inscription_matches.append(inscription)
+                                # Also check decoded text
+                                try:
+                                    if len(inscription) % 2 == 0:
+                                        bytes_data = bytes.fromhex(inscription)
+                                        decoded = bytes_data.decode('utf-8')
+                                        if search_term in decoded.lower():
+                                            inscription_matches.append(decoded)
+                                except (ValueError, UnicodeDecodeError):
+                                    pass
+                
+                # Add transaction if any search criteria match
+                if (search_term in hex_hash or 
+                    len(channel_matches) > 0 or 
+                    len(inscription_matches) > 0):
                     filtered.append(tx)
 
             # Apply pagination

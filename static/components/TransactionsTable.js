@@ -33,11 +33,39 @@ function tryDecodeUtf8Hex(hex) {
             bytes[i / 2] = b;
         }
         const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        if (/[\x20-\x7e]/.test(text)) return text;
+        if (/[ \x20-\x7e]/.test(text)) return text;
         return null;
     } catch {
         return null;
     }
+}
+
+// Extract channel and inscription preview from normalized transaction
+function getChannelAndInscriptionPreview(tx) {
+    const channelIds = tx.channelIds || [];
+    const inscriptions = tx.inscriptions || [];
+    
+    let channelPreview = '';
+    let inscriptionPreview = '';
+    
+    // Get channel preview
+    if (channelIds.length > 0) {
+        const shortId = channelIds[0].slice(0, 8);
+        channelPreview = channelIds.length > 1 ? `${shortId}… (${channelIds.length})` : shortId;
+    }
+    
+    // Get inscription preview
+    if (inscriptions.length > 0) {
+        const hexInscription = inscriptions[0];
+        const decoded = tryDecodeUtf8Hex(hexInscription);
+        if (decoded != null) {
+            inscriptionPreview = decoded.length > 20 ? decoded.slice(0, 20) + '…' : decoded;
+        } else {
+            inscriptionPreview = hexInscription.slice(0, 8);
+        }
+    }
+    
+    return { channelPreview, inscriptionPreview };
 }
 
 function opPreview(op) {
@@ -89,6 +117,29 @@ function normalize(raw) {
     const totalOutputValue = outputs.reduce((sum, note) => sum + toNumber(note?.value), 0);
     const block = raw?.block ?? {};
 
+    // Extract channel and inscription info from operations
+    let channelIds = [];
+    let inscriptions = [];
+    
+    if (ops && Array.isArray(ops)) {
+        for (const op of ops) {
+            if (op?.content) {
+                const content = op.content;
+                
+                // Extract channel_id from various channel operations
+                const channelId = content.channel_id || content.channel;
+                if (channelId) {
+                    channelIds.push(channelId);
+                }
+                
+                // Extract inscription from ChannelInscribe
+                if (content.type === 'ChannelInscribe' && content.inscription) {
+                    inscriptions.push(content.inscription);
+                }
+            }
+        }
+    }
+
     return {
         id: raw?.id ?? '',
         hash: raw?.hash ?? '',
@@ -99,6 +150,8 @@ function normalize(raw) {
         totalOutputValue,
         blockHeight: block?.height ?? 0,
         blockSlot: block?.slot ?? 0,
+        channelIds: channelIds,
+        inscriptions: inscriptions,
     };
 }
 
@@ -277,6 +330,9 @@ export default function TransactionsTable({ live, onDisableLive }) {
         const opsPreview = formatOperationsPreview(tx.operations);
         const fullPreview = Array.isArray(tx.operations) ? tx.operations.map(opPreview).join(', ') : '';
         const outputsText = `${tx.numberOfOutputs} / ${tx.totalOutputValue.toLocaleString(undefined, { maximumFractionDigits: 8 })}`;
+        
+        // Get channel and inscription preview
+        const { channelPreview, inscriptionPreview } = getChannelAndInscriptionPreview(tx);
 
         return h(
             'tr',
@@ -301,6 +357,11 @@ export default function TransactionsTable({ live, onDisableLive }) {
             ),
             // Block Height
             h('td', { class: 'mono' }, String(tx.blockHeight)),
+            // Channel/Inscription (NEW)
+            h('td', { style: 'white-space:normal; line-height:1.4;' },
+                channelPreview ? h('span', { class: 'mono', style: 'color: #4a90d9;' }, channelPreview) : '—',
+                inscriptionPreview ? h('span', { style: 'margin-left: 8px; color: #7bbd5a;' }, inscriptionPreview) : ''
+            ),
             // Operations
             h('td', { style: 'white-space:normal; line-height:1.4;' }, h('span', { title: fullPreview }, opsPreview)),
             // Block Slot
@@ -354,7 +415,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
             },
                 h('input', {
                     type: 'text',
-                    placeholder: 'Search by hash or block height...',
+                    placeholder: 'Search by hash, channel ID, inscription, or block height...',
                     value: searchQuery,
                     onInput: (e) => setSearchQuery(e.target.value),
                     style:
@@ -379,8 +440,9 @@ export default function TransactionsTable({ live, onDisableLive }) {
                     null,
                     h('col', { style: 'width:180px' }), // Hash
                     h('col', { style: 'width:100px' }), // Block Height
+                    h('col', { style: 'width:250px' }), // Channel/Inscription (NEW)
                     h('col', null), // Operations
-                    h('col', { style: 'width:120px' }), // Timestamp
+                    h('col', { style: 'width:120px' }), // Block Slot
                     h('col', { style: 'width:180px' }), // Outputs (count / total)
                 ),
                 h(
@@ -391,6 +453,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
                         null,
                         h('th', null, 'Hash'),
                         h('th', null, 'Block'),
+                        h('th', null, 'Channel / Inscription'),
                         h('th', null, 'Operations'),
                         h('th', null, 'Slot'),
                         h('th', null, 'Outputs (count / total)'),
