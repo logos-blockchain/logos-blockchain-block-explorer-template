@@ -33,11 +33,39 @@ function tryDecodeUtf8Hex(hex) {
             bytes[i / 2] = b;
         }
         const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        if (/[\x20-\x7e]/.test(text)) return text;
+        if (/[ \x20-\x7e]/.test(text)) return text;
         return null;
     } catch {
         return null;
     }
+}
+
+// Extract channel and inscription preview from normalized transaction
+function getChannelAndInscriptionPreview(tx) {
+    const channelIds = tx.channelIds || [];
+    const inscriptions = tx.inscriptions || [];
+    
+    let channelPreview = '';
+    let inscriptionPreview = '';
+    
+    // Get channel preview
+    if (channelIds.length > 0) {
+        const shortId = channelIds[0].slice(0, 8);
+        channelPreview = channelIds.length > 1 ? `${shortId}… (${channelIds.length})` : shortId;
+    }
+    
+    // Get inscription preview
+    if (inscriptions.length > 0) {
+        const hexInscription = inscriptions[0];
+        const decoded = tryDecodeUtf8Hex(hexInscription);
+        if (decoded != null) {
+            inscriptionPreview = decoded.length > 20 ? decoded.slice(0, 20) + '…' : decoded;
+        } else {
+            inscriptionPreview = hexInscription.slice(0, 8);
+        }
+    }
+    
+    return { channelPreview, inscriptionPreview };
 }
 
 function opPreview(op) {
@@ -82,11 +110,35 @@ function formatOperationsPreview(ops) {
     return `${head} +${remainder}`;
 }
 
-// ---------- normalize API → view model ----------
+ // ---------- normalize API → view model ----------
 function normalize(raw) {
     const ops = Array.isArray(raw?.operations) ? raw.operations : Array.isArray(raw?.ops) ? raw.ops : [];
     const outputs = Array.isArray(raw?.outputs) ? raw.outputs : [];
     const totalOutputValue = outputs.reduce((sum, note) => sum + toNumber(note?.value), 0);
+    const block = raw?.block ?? {};
+
+    // Extract channel and inscription info from operations
+    let channelIds = [];
+    let inscriptions = [];
+    
+    if (ops && Array.isArray(ops)) {
+        for (const op of ops) {
+            if (op?.content) {
+                const content = op.content;
+                
+                // Extract channel_id from various channel operations
+                const channelId = content.channel_id || content.channel;
+                if (channelId) {
+                    channelIds.push(channelId);
+                }
+                
+                // Extract inscription from ChannelInscribe
+                if (content.type === 'ChannelInscribe' && content.inscription) {
+                    inscriptions.push(content.inscription);
+                }
+            }
+        }
+    }
 
     return {
         id: raw?.id ?? '',
@@ -96,6 +148,10 @@ function normalize(raw) {
         storageGasPrice: toNumber(raw?.storage_gas_price),
         numberOfOutputs: outputs.length,
         totalOutputValue,
+        blockHeight: block?.height ?? 0,
+        blockSlot: block?.slot ?? 0,
+        channelIds: channelIds,
+        inscriptions: inscriptions,
     };
 }
 
@@ -108,6 +164,8 @@ export default function TransactionsTable({ live, onDisableLive }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [fork, setFork] = useState(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isSearching, setIsSearching] = useState(false);
 
     const abortRef = useRef(null);
     const seenKeysRef = useRef(new Set());
@@ -117,7 +175,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
         return subscribeFork((newFork) => setFork(newFork));
     }, []);
 
-    // Fetch paginated transactions
+    // Fetch paginated transactions (normal mode)
     const fetchTransactions = useCallback(async (pageNum, currentFork) => {
         abortRef.current?.abort();
         seenKeysRef.current.clear();
@@ -138,6 +196,43 @@ export default function TransactionsTable({ live, onDisableLive }) {
             setLoading(false);
         }
     }, []);
+
+    // Search transactions
+    const searchTransactions = useCallback(async (query, pageNum, currentFork) => {
+        if (!query) return;
+
+        setIsSearching(true);
+        abortRef.current?.abort();
+        seenKeysRef.current.clear();
+
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(API.TRANSACTIONS_SEARCH(query, pageNum, TABLE_SIZE, currentFork));
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            setTransactions(data.transactions.map(normalize));
+            setTotalPages(data.total_pages);
+            setTotalCount(data.total_count);
+            setPage(data.page);
+            setSearchQuery(query);
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+            setIsSearching(false);
+        }
+    }, []);
+
+    // Clear search
+    const clearSearch = useCallback(() => {
+        setSearchQuery('');
+        setIsSearching(false);
+        setPage(0);
+        if (fork !== null) {
+            fetchTransactions(0, fork);
+        }
+    }, [fork, fetchTransactions]);
 
     // Start live streaming
     const startLiveStream = useCallback((currentFork) => {
@@ -180,12 +275,36 @@ export default function TransactionsTable({ live, onDisableLive }) {
         if (fork == null) return;
         if (live) {
             startLiveStream(fork);
+        } else if (isSearching) {
+            // In search mode, don't auto-fetch - let user control
+            // Only fetch on page 0 when search is initiated
         } else {
             setPage(0);
             fetchTransactions(0, fork);
         }
         return () => abortRef.current?.abort();
-    }, [live, fork, startLiveStream]);
+    }, [live, fork, startLiveStream, isSearching]);
+
+    // Handle search query changes (debounced)
+    const searchTimeoutRef = useRef(null);
+    useEffect(() => {
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+        if (searchQuery && fork !== null) {
+            searchTimeoutRef.current = setTimeout(() => {
+                searchTransactions(searchQuery, 0, fork);
+            }, 300); // Debounce search by 300ms
+        } else if (!searchQuery && fork !== null) {
+            // Clear search and fetch normal list
+            fetchTransactions(0, fork);
+        }
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
+        };
+    }, [searchQuery, fork, searchTransactions]);
 
     // Go to a page (or exit live mode into page 0)
     const goToPage = (newPage) => {
@@ -194,7 +313,10 @@ export default function TransactionsTable({ live, onDisableLive }) {
             onDisableLive?.();
             return; // useEffect will handle fetching page 0 when live changes
         }
-        if (newPage >= 0) {
+        if (isSearching) {
+            // In search mode, search with new page
+            searchTransactions(searchQuery, newPage, fork);
+        } else if (newPage >= 0) {
             fetchTransactions(newPage, fork);
         }
     };
@@ -204,10 +326,13 @@ export default function TransactionsTable({ live, onDisableLive }) {
         window.dispatchEvent(new PopStateEvent('popstate'));
     };
 
-    const renderRow = (tx, idx) => {
+     const renderRow = (tx, idx) => {
         const opsPreview = formatOperationsPreview(tx.operations);
         const fullPreview = Array.isArray(tx.operations) ? tx.operations.map(opPreview).join(', ') : '';
         const outputsText = `${tx.numberOfOutputs} / ${tx.totalOutputValue.toLocaleString(undefined, { maximumFractionDigits: 8 })}`;
+        
+        // Get channel and inscription preview
+        const { channelPreview, inscriptionPreview } = getChannelAndInscriptionPreview(tx);
 
         return h(
             'tr',
@@ -230,8 +355,17 @@ export default function TransactionsTable({ live, onDisableLive }) {
                     shortenHex(tx.hash),
                 ),
             ),
+            // Block Height
+            h('td', { class: 'mono' }, String(tx.blockHeight)),
+            // Channel/Inscription (NEW)
+            h('td', { style: 'white-space:normal; line-height:1.4;' },
+                channelPreview ? h('span', { class: 'mono', style: 'color: #4a90d9;' }, channelPreview) : '—',
+                inscriptionPreview ? h('span', { style: 'margin-left: 8px; color: #7bbd5a;' }, inscriptionPreview) : ''
+            ),
             // Operations
             h('td', { style: 'white-space:normal; line-height:1.4;' }, h('span', { title: fullPreview }, opsPreview)),
+            // Block Slot
+            h('td', { class: 'mono', style: 'font-size:12px; color:var(--muted);' }, `Slot ${tx.blockSlot}`),
             // Outputs
             h('td', { class: 'amount' }, outputsText),
         );
@@ -261,12 +395,38 @@ export default function TransactionsTable({ live, onDisableLive }) {
         { class: 'card' },
         h(
             'div',
-            { class: 'card-header', style: 'display:flex; justify-content:space-between; align-items:center;' },
+            {
+                class: 'card-header',
+                style:
+                    'display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;',
+            },
             h(
                 'div',
-                null,
+                { style: 'display:flex; align-items:center; gap:8px;' },
                 h('strong', null, 'Transactions '),
-                !live && totalCount > 0 && h('span', { class: 'pill' }, String(totalCount)),
+                !live && !isSearching && totalCount > 0 &&
+                    h('span', { class: 'pill' }, String(totalCount)),
+                isSearching &&
+                    h('span', { class: 'pill', style: 'background:var(--primary); color:white;' }, `Search: ${searchQuery}`),
+            ),
+            // Search bar
+            h('div', {
+                style: 'display:flex; gap:4px; flex:1; max-width:400px; min-width:200px;',
+            },
+                h('input', {
+                    type: 'text',
+                    placeholder: 'Search by hash, channel ID, inscription, or block height...',
+                    value: searchQuery,
+                    onInput: (e) => setSearchQuery(e.target.value),
+                    style:
+                        'flex:1; padding:8px 12px; border:1px solid var(--border); border-radius:4px; background:var(--bg-secondary); color:var(--text); font-size:14px;',
+                }),
+                searchQuery &&
+                    h('button', {
+                        class: 'pill',
+                        style: 'background:var(--danger); color:white; padding:8px 12px;',
+                        onClick: clearSearch,
+                    }, '✕'),
             ),
         ),
         h(
@@ -278,9 +438,12 @@ export default function TransactionsTable({ live, onDisableLive }) {
                 h(
                     'colgroup',
                     null,
-                    h('col', { style: 'width:240px' }), // Hash
+                    h('col', { style: 'width:180px' }), // Hash
+                    h('col', { style: 'width:100px' }), // Block Height
+                    h('col', { style: 'width:250px' }), // Channel/Inscription (NEW)
                     h('col', null), // Operations
-                    h('col', { style: 'width:200px' }), // Outputs (count / total)
+                    h('col', { style: 'width:120px' }), // Block Slot
+                    h('col', { style: 'width:180px' }), // Outputs (count / total)
                 ),
                 h(
                     'thead',
@@ -289,7 +452,10 @@ export default function TransactionsTable({ live, onDisableLive }) {
                         'tr',
                         null,
                         h('th', null, 'Hash'),
+                        h('th', null, 'Block'),
+                        h('th', null, 'Channel / Inscription'),
                         h('th', null, 'Operations'),
+                        h('th', null, 'Slot'),
                         h('th', null, 'Outputs (count / total)'),
                     ),
                 ),
@@ -317,7 +483,9 @@ export default function TransactionsTable({ live, onDisableLive }) {
                 { style: 'color:var(--muted); font-size:13px;' },
                 live
                     ? 'Streaming live transactions...'
-                    : totalPages > 0
+                    : isSearching
+                      ? `Search results: ${totalCount} found for "${searchQuery}"`
+                      : totalPages > 0
                       ? `Page ${page + 1} of ${totalPages}`
                       : 'No transactions',
             ),

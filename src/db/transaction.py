@@ -1,5 +1,5 @@
 from asyncio import sleep
-from typing import AsyncIterator, List
+from typing import AsyncIterator, List, Optional
 
 from rusty_results import Empty, Option, Some
 from sqlalchemy import Result, Select, func as sa_func
@@ -141,3 +141,127 @@ class TransactionRepository:
                 yield transactions
             else:
                 await sleep(timeout_seconds)
+
+    async def search(
+        self,
+        query: str,
+        *,
+        fork: int,
+        page: int = 0,
+        page_size: int = 50,
+    ) -> tuple[List[Transaction], int]:
+        """
+        Search transactions by hash, channel_id, or inscription.
+        Returns (transactions, total_count).
+        """
+        offset = page * page_size
+        chain = chain_block_ids_cte(fork=fork)
+
+        # Build search condition: match hash, channel_id, or inscription (case-insensitive, partial)
+        search_term = query.lower()
+
+        with self.client.session() as session:
+            # Get all transactions in the chain
+            all_statement = (
+                select(Transaction)
+                .options(selectinload(Transaction.block))
+                .join(Block, Transaction.block_id == Block.id)
+                .join(chain, Block.id == chain.c.id)
+                .order_by(Block.height.desc(), Transaction.id.desc())
+            )
+            all_transactions = session.exec(all_statement).all()
+
+            # Filter in Python for hash, channel, and inscription matching
+            filtered = []
+            for tx in all_transactions:
+                # Check hash
+                hex_hash = tx.hash.hex().lower() if hasattr(tx.hash, 'hex') else bytes(tx.hash).hex().lower()
+                
+                # Check channel_id and inscription in operations
+                channel_matches = []
+                inscription_matches = []
+                
+                if hasattr(tx, 'operations') and tx.operations:
+                    for op in tx.operations:
+                        if hasattr(op, 'content') and op.content:
+                            content = op.content
+                            
+                            # Check channel_id (from ChannelInscribe, ChannelBlob, ChannelSetKeys)
+                            channel_id = content.get('channel_id') or content.get('channel')
+                            if channel_id and isinstance(channel_id, str):
+                                channel_id_lower = channel_id.lower()
+                                if search_term in channel_id_lower:
+                                    channel_matches.append(channel_id)
+                            
+                            # Check inscription (from ChannelInscribe)
+                            inscription = content.get('inscription')
+                            if inscription and isinstance(inscription, str):
+                                # Check hex inscription
+                                if search_term in inscription.lower():
+                                    inscription_matches.append(inscription)
+                                # Also check decoded text
+                                try:
+                                    if len(inscription) % 2 == 0:
+                                        bytes_data = bytes.fromhex(inscription)
+                                        decoded = bytes_data.decode('utf-8')
+                                        if search_term in decoded.lower():
+                                            inscription_matches.append(decoded)
+                                except (ValueError, UnicodeDecodeError):
+                                    pass
+                
+                # Add transaction if any search criteria match
+                if (search_term in hex_hash or 
+                    len(channel_matches) > 0 or 
+                    len(inscription_matches) > 0):
+                    filtered.append(tx)
+
+            # Apply pagination
+            total_count = len(filtered)
+            transactions = filtered[offset:offset + page_size]
+
+        return transactions, total_count
+
+    async def search_by_block_height(
+        self,
+        block_height: int,
+        *,
+        fork: int,
+        page: int = 0,
+        page_size: int = 50,
+    ) -> tuple[List[Transaction], int]:
+        """
+        Search transactions by block height.
+        Returns (transactions, total_count).
+        """
+        offset = page * page_size
+        chain = chain_block_ids_cte(fork=fork)
+
+        with self.client.session() as session:
+            # Count total matching transactions
+            count_statement = (
+                select(sa_func.count())
+                .select_from(Transaction)
+                .join(Block, Transaction.block_id == Block.id)
+                .join(chain, Block.id == chain.c.id)
+                .where(Block.height == block_height)
+            )
+            total_count = session.exec(count_statement).one()
+
+            if total_count == 0:
+                return [], 0
+
+            # Get matching transactions
+            statement = (
+                select(Transaction)
+                .options(selectinload(Transaction.block))
+                .join(Block, Transaction.block_id == Block.id)
+                .join(chain, Block.id == chain.c.id)
+                .where(Block.height == block_height)
+                .order_by(Transaction.id.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+
+            transactions = session.exec(statement).all()
+
+        return transactions, total_count

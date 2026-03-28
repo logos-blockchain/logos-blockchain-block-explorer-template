@@ -23,6 +23,8 @@ const TRANSACTIONS_STREAM_WITH_FORK = (fork) =>
     `${joinUrl(API_PREFIX, 'transactions/stream')}?fork=${encodeURIComponent(fork)}`;
 const TRANSACTIONS_LIST = (page, pageSize, fork) =>
     `${joinUrl(API_PREFIX, 'transactions/list')}?page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}&fork=${encodeURIComponent(fork)}`;
+const TRANSACTIONS_SEARCH = (query, page, pageSize, fork) =>
+    `${joinUrl(API_PREFIX, 'transactions/search')}?q=${encodeURIComponent(query)}&page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}&fork=${encodeURIComponent(fork)}`;
 
 export const API = {
     HEALTH_ENDPOINT,
@@ -31,6 +33,7 @@ export const API = {
     TRANSACTIONS_STREAM,
     TRANSACTIONS_STREAM_WITH_FORK,
     TRANSACTIONS_LIST,
+    TRANSACTIONS_SEARCH,
     BLOCK_DETAIL_BY_HASH,
     BLOCKS_STREAM,
     BLOCKS_LIST,
