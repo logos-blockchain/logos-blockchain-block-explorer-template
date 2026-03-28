@@ -69,3 +69,38 @@ async def get(request: NBERequest, transaction_hash: str, fork: int = Query(...)
     return transaction.map(
         lambda _transaction: JSONResponse(TransactionRead.from_transaction(_transaction).model_dump(mode="json"))
     ).unwrap_or_else(lambda: Response(status_code=NOT_FOUND))
+
+
+async def search(
+    request: NBERequest,
+    q: str = Query(..., description="Search query (hash partial match or block height)"),
+    page: int = Query(0, ge=0, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+    fork: int = Query(..., description="Fork ID"),
+) -> Response:
+    """Search transactions by hash or block height."""
+    if not q:
+        return JSONResponse({"transactions": [], "page": page, "page_size": page_size, "total_count": 0, "total_pages": 0})
+
+    # Try to parse as block height (integer)
+    try:
+        block_height = int(q)
+        transactions, total_count = await request.app.state.transaction_repository.search_by_block_height(
+            block_height, fork=fork, page=page, page_size=page_size
+        )
+    except ValueError:
+        # Search by hash (partial match)
+        transactions, total_count = await request.app.state.transaction_repository.search(
+            q, fork=fork, page=page, page_size=page_size
+        )
+
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
+
+    return JSONResponse({
+        "transactions": [TransactionRead.from_transaction(tx).model_dump(mode="json") for tx in transactions],
+        "page": page,
+        "page_size": page_size,
+        "total_count": total_count,
+        "total_pages": total_pages,
+        "query": q,
+    })

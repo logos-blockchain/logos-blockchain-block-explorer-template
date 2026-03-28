@@ -12,6 +12,9 @@ from node.api.serializers.health import HealthSerializer
 
 async def get(request: NBERequest) -> Response:
     response = await request.app.state.node_api.get_health()
+    # HealthSerializer needs to be converted to dict for JSON serialization
+    if hasattr(response, 'model_dump'):
+        return JSONResponse(response.model_dump(mode='json'))
     return JSONResponse(response)
 
 

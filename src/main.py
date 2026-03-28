@@ -4,7 +4,7 @@ from os import getenv
 import uvicorn
 from dotenv import load_dotenv
 
-from app import create_app
+from src.app import create_app
 from logs import setup_logging
 
 
