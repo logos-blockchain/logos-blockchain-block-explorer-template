@@ -3,9 +3,11 @@ from typing import List, Literal, Optional
 
 from core.models import NbeSchema
 from core.types import HexBytes
+from models.transactions.notes import Note
 
 
 class ContentType(Enum):
+    LEDGER_TRANSFER = "LedgerTransfer"
     CHANNEL_INSCRIBE = "ChannelInscribe"
     CHANNEL_BLOB = "ChannelBlob"
     CHANNEL_SET_KEYS = "ChannelSetKeys"
@@ -17,6 +19,12 @@ class ContentType(Enum):
 
 class NbeContent(NbeSchema):
     type: str
+
+
+class LedgerTransfer(NbeContent):
+    type: Literal["LedgerTransfer"] = "LedgerTransfer"
+    inputs: List[HexBytes]
+    outputs: List[Note]
 
 
 class ChannelInscribe(NbeContent):
@@ -77,4 +85,6 @@ class LeaderClaim(NbeContent):
     mantle_tx_hash: HexBytes
 
 
-OperationContent = ChannelInscribe | ChannelBlob | ChannelSetKeys | SDPDeclare | SDPWithdraw | SDPActive | LeaderClaim
+OperationContent = (
+    LedgerTransfer | ChannelInscribe | ChannelBlob | ChannelSetKeys | SDPDeclare | SDPWithdraw | SDPActive | LeaderClaim
+)

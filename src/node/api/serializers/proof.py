@@ -36,19 +36,32 @@ class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[bytes]):
         return cls.model_validate(list(random_bytes(64)))
 
 
-class ZkSignatureSerializer(OperationProofSerializer, RootModel[bytes]):
-    root: BytesFromIntArray
+class ZkSignatureSerializer(OperationProofSerializer, NbeSerializer):
+    """Groth16 ZK proof: pi_a (32B) + pi_b (64B) + pi_c (32B) = 128 bytes total."""
+
+    pi_a: BytesFromIntArray
+    pi_b: BytesFromIntArray
+    pi_c: BytesFromIntArray
+
+    def to_bytes(self) -> bytes:
+        return self.pi_a + self.pi_b + self.pi_c
 
     def into_operation_proof(self) -> NbeSignature:
         return ZkSignature.model_validate(
             {
-                "signature": self.root,
+                "signature": self.to_bytes(),
             }
         )
 
     @classmethod
     def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate(list(random_bytes(32)))
+        return cls.model_validate(
+            {
+                "pi_a": list(random_bytes(32)),
+                "pi_b": list(random_bytes(64)),
+                "pi_c": list(random_bytes(32)),
+            }
+        )
 
 
 class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):

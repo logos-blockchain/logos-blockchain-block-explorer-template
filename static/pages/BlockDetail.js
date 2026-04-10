@@ -40,7 +40,14 @@ function opsToPills(ops, limit = OPERATIONS_PREVIEW_LIMIT) {
 }
 
 function computeOutputsSummaryFromTx(tx) {
-    const outputs = Array.isArray(tx?.outputs) ? tx.outputs : [];
+    // Outputs now live inside LedgerTransfer ops; aggregate across them.
+    const ops = Array.isArray(tx?.operations) ? tx.operations : [];
+    const outputs = [];
+    for (const op of ops) {
+        const content = op?.content ?? op;
+        if (content?.type !== 'LedgerTransfer') continue;
+        if (Array.isArray(content.outputs)) outputs.push(...content.outputs);
+    }
     const count = outputs.length;
     const total = outputs.reduce((sum, o) => sum + Number(o?.value ?? 0), 0);
     return { count, total };

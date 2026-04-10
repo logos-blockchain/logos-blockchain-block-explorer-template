@@ -94,35 +94,21 @@ function CopyPill({ text, label = 'Copy' }) {
     );
 }
 
-// ————— normalizer for new TransactionRead —————
-// { id, block_id, hash, operations:[Operation], inputs:[HexBytes], outputs:[Note{public_key:HexBytes,value:int}],
-//   proof, execution_gas_price, storage_gas_price }
+// ————— normalizer for TransactionRead —————
+// { id, block_hash, hash, operations:[Operation], execution_gas_price, storage_gas_price }
+// Ledger transfers are now an Operation with content.type === 'LedgerTransfer'.
 function normalizeTransaction(raw) {
     const ops = Array.isArray(raw?.operations) ? raw.operations : Array.isArray(raw?.ops) ? raw.ops : [];
-
-    const inputs = Array.isArray(raw?.inputs) ? raw.inputs : [];
-    const outputs = Array.isArray(raw?.outputs) ? raw.outputs : [];
-
-    const totalOutputValue = outputs.reduce((sum, note) => sum + toNumber(note?.value), 0);
 
     return {
         id: raw?.id ?? '',
         blockHash: raw?.block_hash ?? null,
         hash: renderBytes(raw?.hash),
-        proof: renderBytes(raw?.proof),
-        operations: ops, // keep objects, we’ll label in UI
+        operations: ops,
         executionGasPrice: isNumber(raw?.execution_gas_price)
             ? raw.execution_gas_price
             : toNumber(raw?.execution_gas_price),
         storageGasPrice: isNumber(raw?.storage_gas_price) ? raw.storage_gas_price : toNumber(raw?.storage_gas_price),
-        ledger: {
-            inputs: inputs.map((v) => renderBytes(v)),
-            outputs: outputs.map((n) => ({
-                public_key: renderBytes(n?.public_key),
-                value: toNumber(n?.value),
-            })),
-            totalOutputValue,
-        },
     };
 }
 
@@ -169,20 +155,6 @@ function Summary({ tx }) {
                 ),
                 h(CopyPill, { text: tx.hash }),
             ),
-
-            // Proof + copy (if present)
-            tx.proof &&
-                h(
-                    'div',
-                    null,
-                    h('b', null, 'Proof: '),
-                    h(
-                        'span',
-                        { class: 'pill mono', title: tx.proof, style: 'max-width:100%; overflow-wrap:anywhere;' },
-                        String(tx.proof),
-                    ),
-                    h(CopyPill, { text: tx.proof }),
-                ),
 
             // Gas
             h(
@@ -360,7 +332,55 @@ function InscriptionValue({ value }) {
     return h(FieldValue, { value });
 }
 
+function LedgerTransferContent({ content }) {
+    const inputs = Array.isArray(content?.inputs) ? content.inputs.map((v) => renderBytes(v)) : [];
+    const rawOutputs = Array.isArray(content?.outputs) ? content.outputs : [];
+    const outputs = rawOutputs.map((n) => ({
+        public_key: renderBytes(n?.public_key),
+        value: toNumber(n?.value),
+    }));
+    const totalOutputValue = outputs.reduce((sum, o) => sum + o.value, 0);
+
+    return h(
+        'div',
+        { style: 'display:grid; gap:16px;' },
+
+        // Inputs
+        h(
+            'div',
+            null,
+            h(
+                'div',
+                { style: 'display:flex; align-items:center; gap:8px;' },
+                h('b', null, 'Inputs'),
+                h('span', { class: 'pill' }, String(inputs.length)),
+            ),
+            h(InputsTable, { inputs }),
+        ),
+
+        // Outputs
+        h(
+            'div',
+            null,
+            h(
+                'div',
+                { style: 'display:flex; align-items:center; gap:8px;' },
+                h('b', null, 'Outputs'),
+                h('span', { class: 'pill' }, String(outputs.length)),
+                h(
+                    'span',
+                    { class: 'amount', style: 'margin-left:auto;' },
+                    `Total: ${toLocaleNum(totalOutputValue)}`,
+                ),
+            ),
+            h(OutputsTable, { outputs }),
+        ),
+    );
+}
+
 function OperationContent({ content }) {
+    if (content?.type === 'LedgerTransfer') return h(LedgerTransferContent, { content });
+
     // Get all fields except "type"
     const entries = Object.entries(content).filter(([k]) => k !== 'type');
     if (!entries.length) return h('div', { style: 'color:var(--muted)' }, 'No fields');
@@ -432,52 +452,6 @@ function Operations({ operations }) {
             'div',
             { style: 'display:flex; flex-direction:column; gap:12px;' },
             ...ops.map((op, i) => h(OperationCard, { key: i, op, index: i })),
-        ),
-    );
-}
-
-function Ledger({ ledger }) {
-    const inputs = Array.isArray(ledger?.inputs) ? ledger.inputs : [];
-    const outputs = Array.isArray(ledger?.outputs) ? ledger.outputs : [];
-    const totalOutputValue = toNumber(ledger?.totalOutputValue);
-
-    return h(
-        SectionCard,
-        { title: 'Ledger' },
-        h(
-            'div',
-            { style: 'display:grid; gap:16px;' },
-
-            // Inputs
-            h(
-                'div',
-                null,
-                h(
-                    'div',
-                    { style: 'display:flex; alignItems:center; gap:8px;' },
-                    h('b', null, 'Inputs'),
-                    h('span', { class: 'pill' }, String(inputs.length)),
-                ),
-                h(InputsTable, { inputs }),
-            ),
-
-            // Outputs
-            h(
-                'div',
-                null,
-                h(
-                    'div',
-                    { style: 'display:flex; alignItems:center; gap:8px;' },
-                    h('b', null, 'Outputs'),
-                    h('span', { class: 'pill' }, String(outputs.length)),
-                    h(
-                        'span',
-                        { class: 'amount', style: 'margin-left:auto;' },
-                        `Total: ${toLocaleNum(totalOutputValue)}`,
-                    ),
-                ),
-                h(OutputsTable, { outputs }),
-            ),
         ),
     );
 }
@@ -571,7 +545,6 @@ export default function TransactionDetail({ parameters }) {
                 null,
                 h(Summary, { tx }),
                 h(Operations, { operations: tx.operations }),
-                h(Ledger, { ledger: tx.ledger }),
             ),
     );
 }
