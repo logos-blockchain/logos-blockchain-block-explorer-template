@@ -83,9 +83,21 @@ function formatOperationsPreview(ops) {
 }
 
 // ---------- normalize API → view model ----------
+// Outputs come from the LedgerTransfer op(s) since the top-level inputs/outputs
+// columns were removed (the new mantle schema represents transfers as ops).
+function collectTransferOutputs(ops) {
+    const outputs = [];
+    for (const op of ops) {
+        const content = op?.content ?? op;
+        if (content?.type !== 'LedgerTransfer') continue;
+        if (Array.isArray(content.outputs)) outputs.push(...content.outputs);
+    }
+    return outputs;
+}
+
 function normalize(raw) {
     const ops = Array.isArray(raw?.operations) ? raw.operations : Array.isArray(raw?.ops) ? raw.ops : [];
-    const outputs = Array.isArray(raw?.outputs) ? raw.outputs : [];
+    const outputs = collectTransferOutputs(ops);
     const totalOutputValue = outputs.reduce((sum, note) => sum + toNumber(note?.value), 0);
 
     return {

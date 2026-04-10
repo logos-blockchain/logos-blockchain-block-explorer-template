@@ -1,15 +1,14 @@
 import logging
 from typing import List, Optional
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import Column
 from sqlmodel import Field, Relationship
 
 from core.models import TimestampedModel
 from core.sqlmodel import PydanticJsonColumn
 from core.types import HexBytes
-from models.aliases import Fr, Gas
+from models.aliases import Gas
 from models.block import Block
-from models.transactions.notes import Note
 from models.transactions.operations.operation import Operation
 
 logger = logging.getLogger(__name__)
@@ -25,11 +24,6 @@ class Transaction(TimestampedModel, table=True):
     operations: List[Operation] = Field(
         default_factory=list, sa_column=Column(PydanticJsonColumn(Operation, many=True), nullable=False)
     )
-    inputs: List[Fr] = Field(default_factory=list, sa_column=Column(PydanticJsonColumn(Fr, many=True), nullable=False))
-    outputs: List[Note] = Field(
-        default_factory=list, sa_column=Column(PydanticJsonColumn(Note, many=True), nullable=False)
-    )
-    proof: HexBytes = Field(min_length=128, max_length=128, nullable=False)
     execution_gas_price: Gas
     storage_gas_price: Gas
 
