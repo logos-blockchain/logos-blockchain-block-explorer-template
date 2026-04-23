@@ -31,6 +31,7 @@ async def backfill_to_lib(app: "NBE") -> None:
             info = await app.state.node_api.get_info()
             logger.info(f"Node info: LIB={info.lib}, tip={info.tip}, slot={info.slot}, height={info.height}")
 
+            logger.debug(f"Block {info.lib}...")
             await backfill_chain_from_hash(app, info.lib)
             return
 
@@ -51,6 +52,7 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
 
     while True:
         # Check if we already have this block
+        logger.debug(f"Block {current_hash}...")
         existing = await app.state.block_repository.get_by_hash(bytes.fromhex(current_hash))
         if existing.is_some:
             logger.debug(f"Block {current_hash[:16]}... already exists, stopping chain walk")
