@@ -2,6 +2,7 @@ import asyncio
 import logging
 from asyncio import create_task
 from contextlib import asynccontextmanager
+from itertools import batched
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, List
 
 from db.blocks import BlockRepository
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from core.app import NBE
 
 logger = logging.getLogger(__name__)
+
+# Safe insert size for SQLite ^3.32.0
+SQLITE_BATCH_INSERT_SIZE = 10_000
 
 
 async def backfill_to_lib(app: "NBE") -> None:
@@ -77,13 +81,12 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
 
     # Insert all blocks in 10k batches to avoid sqlite query limits
     # allowing the first block to be a chain root if its parent doesn't exist
-    for idx, i in enumerate(range(block_count - 1, -1, -10_000)):
-        start = max(0, i - 9_999)
-        batch = blocks_to_insert[start : (i + 1)]
+
+    for idx, batch in enumerate(batched(reversed(blocks_to_insert), SQLITE_BATCH_INSERT_SIZE)):
         first_slot = batch[0].slot
         last_slot = batch[-1].slot
         # allow_chain_root true only on first iteration
-        await app.state.block_repository.create(batch, allow_chain_root=(idx == 0))
+        await app.state.block_repository.create(list(batch), allow_chain_root=(idx == 0))
         logger.info(f"Backfilled {len(batch)} blocks (slots {first_slot} to {last_slot})")
 
 
