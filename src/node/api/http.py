@@ -35,6 +35,12 @@ class HttpNodeApi(NodeApi):
         self.authentication: Option[Authentication] = (
             Some(settings.node_api_auth) if settings.node_api_auth else Empty()
         )
+        auth = self.authentication.map(
+            lambda _auth: _auth.for_httpx()).unwrap_or(None)
+        self._client = httpx.AsyncClient(timeout=self.timeout, auth=auth)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     @property
     def base_url(self) -> str:
@@ -78,28 +84,28 @@ class HttpNodeApi(NodeApi):
 
     async def get_block_by_hash(self, block_hash: str) -> Optional[BlockSerializer]:
         url = urljoin(self.base_url, self.ENDPOINT_BLOCK_BY_HASH)
-        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
-        async with httpx.AsyncClient(timeout=60, auth=auth) as client:
-            response = await client.post(url, json=block_hash)
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            json_data = response.json()
-            if json_data is None:
-                logger.warning(f"Block {block_hash} returned null from API")
-                return None
-            block = BlockSerializer.model_validate(json_data)
-            # The storage endpoint doesn't include the block hash in the response,
-            # so we set it from the request body
-            if not block.header.hash:
-                block.header.hash = bytes.fromhex(block_hash)
-            return block
+        response = await self._client.post(url, json=block_hash)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        json_data = response.json()
+        if json_data is None:
+            logger.warning(f"Block {block_hash} returned null from API")
+            return None
+        block = BlockSerializer.model_validate(json_data)
+        # The storage endpoint doesn't include the block hash in the response,
+        # so we set it from the request body
+        if not block.header.hash:
+            block.header.hash = bytes.fromhex(block_hash)
+        return block
 
     async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
         url = urljoin(self.base_url, self.ENDPOINT_BLOCKS_STREAM)
-        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
+        auth = self.authentication.map(
+            lambda _auth: _auth.for_httpx()).unwrap_or(None)
         # Use no read timeout for streaming - blocks may arrive infrequently
-        stream_timeout = httpx.Timeout(connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
+        stream_timeout = httpx.Timeout(
+            connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
         async with httpx.AsyncClient(timeout=stream_timeout, auth=auth) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()  # TODO: Result
