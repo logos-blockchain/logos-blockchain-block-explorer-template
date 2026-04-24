@@ -28,7 +28,7 @@ class FakeNodeApi(NodeApi):
             lib="0" * 64,
             tip="0" * 64,
             slot=self.current_slot,
-            height=0,
+            height=1,  # Genesis block counts as height 1
             mode="Fake",
         )
 

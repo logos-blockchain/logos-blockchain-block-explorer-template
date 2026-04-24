@@ -120,15 +120,18 @@ class BlockRepository:
                     else:
                         # Parent not found anywhere
                         if block.slot == 0 or block.hash == chain_root_hash:
-                            # Genesis block or chain root - no parent requirement
-                            block.height = 0
+                            # Genesis block or chain root - no parent requirement.
+                            # Height starts at 1 to count the genesis block itself,
+                            # so chain height = total number of blocks.
+                            # See: https://github.com/logos-blockchain/logos-blockchain-block-explorer-template/issues/12
+                            block.height = 1
                             parent_heights[block.hash] = block.height
                             resolved.add(block.hash)
                             made_progress = True
                             if block.hash == chain_root_hash:
                                 logger.info(
                                     f"Chain root block: hash={block.hash.hex()[:16]}..., "
-                                    f"slot={block.slot}, height=0"
+                                    f"slot={block.slot}, height=1"
                                 )
                         else:
                             # Orphan block - parent doesn't exist
