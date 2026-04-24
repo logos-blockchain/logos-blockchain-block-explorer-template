@@ -35,8 +35,7 @@ class HttpNodeApi(NodeApi):
         self.authentication: Option[Authentication] = (
             Some(settings.node_api_auth) if settings.node_api_auth else Empty()
         )
-        auth = self.authentication.map(
-            lambda _auth: _auth.for_httpx()).unwrap_or(None)
+        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
         self._client = httpx.AsyncClient(timeout=self.timeout, auth=auth)
 
     async def aclose(self) -> None:
@@ -101,11 +100,9 @@ class HttpNodeApi(NodeApi):
 
     async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
         url = urljoin(self.base_url, self.ENDPOINT_BLOCKS_STREAM)
-        auth = self.authentication.map(
-            lambda _auth: _auth.for_httpx()).unwrap_or(None)
+        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
         # Use no read timeout for streaming - blocks may arrive infrequently
-        stream_timeout = httpx.Timeout(
-            connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
+        stream_timeout = httpx.Timeout(connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
         async with httpx.AsyncClient(timeout=stream_timeout, auth=auth) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()  # TODO: Result
