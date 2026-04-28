@@ -84,7 +84,7 @@ B <--> D["Database<br/>(SQLite)"]
 
 2. Run the block explorer:
    ```bash
-   uv run python -m main
+   PYTHONPATH=src uv run python -m main
    ```
 By default, this will try to connect to a local Node running on port 18080.
 
@@ -95,7 +95,7 @@ By default, this will try to connect to a local Node running on port 18080.
 
 - If you want to run the Explorer without a Node, make sure to set the `NBE_NODE_API` environment variable to `fake`:
     1. ```bash
-       NBE_NODE_API=fake uv run python -m main
+       PYTHONPATH=src NBE_NODE_API=fake uv run python -m main
        ```
     2. ```bash
        docker run -e NBE_NODE_API=fake -p 8000:8000 nomos-block-explorer

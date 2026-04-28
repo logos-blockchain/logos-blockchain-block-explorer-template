@@ -2,6 +2,7 @@ import asyncio
 import logging
 from asyncio import create_task
 from contextlib import asynccontextmanager
+from itertools import batched
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, List
 
 from db.blocks import BlockRepository
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from core.app import NBE
 
 logger = logging.getLogger(__name__)
+
+# Safe insert size for SQLite ^3.32.0
+SQLITE_BATCH_INSERT_SIZE = 10_000
 
 
 async def backfill_to_lib(app: "NBE") -> None:
@@ -73,19 +77,17 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
         logger.info("No new blocks to backfill")
         return
 
-    # Reverse so we insert from oldest to newest (parent before child)
-    blocks_to_insert.reverse()
-
-    # Capture slot range before insert (blocks get detached from session after commit)
-    first_slot = blocks_to_insert[0].slot
-    last_slot = blocks_to_insert[-1].slot
     block_count = len(blocks_to_insert)
 
-    logger.info(f"Backfilling {block_count} blocks from chain walk...")
+    # Insert all blocks in 10k batches to avoid sqlite query limits
+    # allowing the first block to be a chain root if its parent doesn't exist
 
-    # Insert all blocks, allowing the first one to be a chain root if its parent doesn't exist
-    await app.state.block_repository.create(*blocks_to_insert, allow_chain_root=True)
-    logger.info(f"Backfilled {block_count} blocks (slots {first_slot} to {last_slot})")
+    for idx, batch in enumerate(batched(reversed(blocks_to_insert), SQLITE_BATCH_INSERT_SIZE)):
+        first_slot = batch[0].slot
+        last_slot = batch[-1].slot
+        # allow_chain_root true only on first iteration
+        await app.state.block_repository.create(list(batch), allow_chain_root=(idx == 0))
+        logger.info(f"Backfilled {len(batch)} blocks (slots {first_slot} to {last_slot})")
 
 
 @asynccontextmanager
@@ -110,6 +112,10 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
 
         yield
     finally:
+        # Check if node api needs cleanup
+        if hasattr(app.state.node_api, "aclose"):
+            logger.info("Closing node_api connections...")
+            await app.state.node_api.aclose()
         logger.info("Stopping node...")
         await app.state.node_manager.stop()
         logger.info("Node stopped.")
@@ -164,7 +170,7 @@ async def subscribe_to_new_blocks(app: "NBE"):
                 block_slot = block.slot
 
                 # Now we have the parent, store the block
-                await app.state.block_repository.create(block)
+                await app.state.block_repository.create([block])
                 logger.debug(f"Stored block at slot {block_slot}")
 
             except Exception as error:

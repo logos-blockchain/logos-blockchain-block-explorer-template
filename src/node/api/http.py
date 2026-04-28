@@ -35,6 +35,11 @@ class HttpNodeApi(NodeApi):
         self.authentication: Option[Authentication] = (
             Some(settings.node_api_auth) if settings.node_api_auth else Empty()
         )
+        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
+        self._client = httpx.AsyncClient(timeout=self.timeout, auth=auth)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     @property
     def base_url(self) -> str:
@@ -78,12 +83,7 @@ class HttpNodeApi(NodeApi):
 
     async def get_block_by_hash(self, block_hash: str) -> Optional[BlockSerializer]:
         url = urljoin(self.base_url, self.ENDPOINT_BLOCK_BY_HASH)
-        response = requests.post(
-            url,
-            auth=self.authentication,
-            timeout=60,
-            json=block_hash,
-        )
+        response = await self._client.post(url, json=block_hash)
         if response.status_code == 404:
             return None
         response.raise_for_status()

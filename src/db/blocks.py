@@ -47,7 +47,7 @@ class BlockRepository:
     def __init__(self, client: DbClient):
         self.client = client
 
-    async def create(self, *blocks: Block, allow_chain_root: bool = False) -> None:
+    async def create(self, blocks: List[Block], allow_chain_root: bool = False) -> None:
         """
         Insert blocks into the database with proper height calculation.
 
