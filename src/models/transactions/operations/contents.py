@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from core.models import NbeSchema
 from core.types import HexBytes
@@ -59,7 +59,7 @@ class SDPDeclareServiceType(Enum):
 class SDPDeclare(NbeContent):
     type: Literal["SDPDeclare"] = "SDPDeclare"
     service_type: SDPDeclareServiceType
-    locators: List[bytes]
+    locators: List[str]
     provider_id: HexBytes
     zk_id: HexBytes
     locked_note_id: HexBytes
@@ -74,8 +74,8 @@ class SDPWithdraw(NbeContent):
 class SDPActive(NbeContent):
     type: Literal["SDPActive"] = "SDPActive"
     declaration_id: HexBytes
-    nonce: HexBytes
-    metadata: Optional[bytes]
+    nonce: int
+    metadata: Optional[Any] = None
 
 
 class LeaderClaim(NbeContent):
