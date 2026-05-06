@@ -1,17 +1,20 @@
 from random import randint
-from typing import Annotated, Any, List, Self, Union
+from typing import Annotated, Any, List, Optional, Self, Union
 
 from pydantic import BeforeValidator, Field
 
 from core.models import NbeSerializer
+from models.transactions.operations.contents import SDPDeclareServiceType
 from node.api.serializers.fields import BytesFromHex, BytesFromIntArray
 from node.api.serializers.note import NoteSerializer
 from utils.protocols import FromRandom
 from utils.random import random_bytes
 
-# Mantle op opcodes (new node release).
+# Mantle op opcodes.
 OPCODE_LEDGER = 0
 OPCODE_CHANNEL_INSCRIBE = 17
+OPCODE_SDP_DECLARE = 32
+OPCODE_SDP_ACTIVE = 34
 
 
 class LedgerOpSerializer(NbeSerializer, FromRandom):
@@ -52,14 +55,68 @@ class ChannelInscribeOpSerializer(NbeSerializer, FromRandom):
         )
 
 
+class SDPDeclareOpSerializer(NbeSerializer, FromRandom):
+    """SDP declare op (opcode 32): registers a service provider."""
+
+    service_type: SDPDeclareServiceType
+    locators: List[str] = Field(description="Multiaddr strings, e.g. /ip4/.../udp/.../quic-v1.")
+    provider_id: BytesFromHex = Field(description="Provider ID in hex format.")
+    zk_id: BytesFromHex = Field(description="ZK ID in hex format.")
+    locked_note_id: BytesFromHex = Field(description="Locked note ID in hex format.")
+
+    @classmethod
+    def from_random(cls) -> Self:
+        return cls.model_validate(
+            {
+                "service_type": "BN",
+                "locators": ["/ip4/127.0.0.1/udp/3400/quic-v1"],
+                "provider_id": random_bytes(32).hex(),
+                "zk_id": random_bytes(32).hex(),
+                "locked_note_id": random_bytes(32).hex(),
+            }
+        )
+
+
+class SDPActiveOpSerializer(NbeSerializer, FromRandom):
+    """SDP active op (opcode 34): proves a declared provider is online."""
+
+    declaration_id: BytesFromHex = Field(description="Declaration ID in hex format.")
+    nonce: int = Field(description="Activity nonce in u64 format.")
+    metadata: Optional[Any] = Field(
+        default=None,
+        description="Service-specific metadata (e.g. Blend session/proofs). Stored verbatim.",
+    )
+
+    @classmethod
+    def from_random(cls) -> Self:
+        return cls.model_validate(
+            {
+                "declaration_id": random_bytes(32).hex(),
+                "nonce": randint(0, 1_000),
+                "metadata": None,
+            }
+        )
+
+
 OPCODE_TO_SERIALIZER: dict[int, type] = {
     OPCODE_LEDGER: LedgerOpSerializer,
     OPCODE_CHANNEL_INSCRIBE: ChannelInscribeOpSerializer,
+    OPCODE_SDP_DECLARE: SDPDeclareOpSerializer,
+    OPCODE_SDP_ACTIVE: SDPActiveOpSerializer,
 }
 
 
-def _parse_mantle_op(data: Any) -> Union[LedgerOpSerializer, ChannelInscribeOpSerializer]:
-    if isinstance(data, (LedgerOpSerializer, ChannelInscribeOpSerializer)):
+MantleOpSerializerVariants = Union[
+    LedgerOpSerializer,
+    ChannelInscribeOpSerializer,
+    SDPDeclareOpSerializer,
+    SDPActiveOpSerializer,
+]
+_MANTLE_OP_SERIALIZER_CLASSES = tuple(OPCODE_TO_SERIALIZER.values())
+
+
+def _parse_mantle_op(data: Any) -> MantleOpSerializerVariants:
+    if isinstance(data, _MANTLE_OP_SERIALIZER_CLASSES):
         return data
     if isinstance(data, dict) and "opcode" in data:
         opcode = data["opcode"]
@@ -72,5 +129,4 @@ def _parse_mantle_op(data: Any) -> Union[LedgerOpSerializer, ChannelInscribeOpSe
     raise ValueError(f"Cannot parse mantle op from {type(data).__name__}.")
 
 
-MantleOpSerializerVariants = Union[LedgerOpSerializer, ChannelInscribeOpSerializer]
 MantleOpSerializerField = Annotated[MantleOpSerializerVariants, BeforeValidator(_parse_mantle_op)]

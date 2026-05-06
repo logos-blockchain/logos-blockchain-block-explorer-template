@@ -25,7 +25,7 @@ class HttpNodeApi(NodeApi):
     # Paths can't have a leading slash since they are relative to the base URL
     ENDPOINT_INFO = "cryptarchia/info"
     ENDPOINT_BLOCKS_STREAM = "cryptarchia/events/blocks/stream"
-    ENDPOINT_BLOCK_BY_HASH = "storage/block"
+    ENDPOINT_BLOCK_BY_HASH = "cryptarchia/blocks/"  # block hash appended as path segment
 
     def __init__(self, settings: "NBESettings"):
         self.host: str = settings.node_api_host
@@ -82,8 +82,8 @@ class HttpNodeApi(NodeApi):
         return InfoSerializer.model_validate(response.json())
 
     async def get_block_by_hash(self, block_hash: str) -> Optional[BlockSerializer]:
-        url = urljoin(self.base_url, self.ENDPOINT_BLOCK_BY_HASH)
-        response = await self._client.post(url, json=block_hash)
+        url = urljoin(self.base_url, self.ENDPOINT_BLOCK_BY_HASH + block_hash)
+        response = await self._client.get(url)
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -91,12 +91,7 @@ class HttpNodeApi(NodeApi):
         if json_data is None:
             logger.warning(f"Block {block_hash} returned null from API")
             return None
-        block = BlockSerializer.model_validate(json_data)
-        # The storage endpoint doesn't include the block hash in the response,
-        # so we set it from the request body
-        if not block.header.hash:
-            block.header.hash = bytes.fromhex(block_hash)
-        return block
+        return BlockSerializer.model_validate(json_data)
 
     async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
         url = urljoin(self.base_url, self.ENDPOINT_BLOCKS_STREAM)

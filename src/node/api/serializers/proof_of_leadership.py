@@ -9,7 +9,7 @@ from models.header.proof_of_leadership import (
     Groth16ProofOfLeadership,
     ProofOfLeadership,
 )
-from node.api.serializers.fields import BytesFromHex, BytesFromIntArray
+from node.api.serializers.fields import BytesFromHex
 from utils.protocols import EnforceSubclassFromRandom
 from utils.random import random_bytes
 
@@ -22,10 +22,8 @@ class ProofOfLeadershipSerializer(NbeSerializer, EnforceSubclassFromRandom, ABC)
 
 class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
     entropy_contribution: BytesFromHex = Field(description="Fr integer.")
-    leader_key: BytesFromHex = Field(description="Bytes in Integer Array format.")
-    proof: BytesFromIntArray = Field(
-        description="Bytes in Integer Array format.",
-    )
+    leader_key: BytesFromHex = Field(description="Hash in hex format.")
+    proof: BytesFromHex = Field(description="Groth16 proof bytes (128B) in hex format.")
     voucher_cm: BytesFromHex = Field(description="Hash.")
 
     def into_proof_of_leadership(self) -> ProofOfLeadership:
@@ -44,7 +42,7 @@ class Groth16LeaderProofSerializer(ProofOfLeadershipSerializer, NbeSerializer):
             {
                 "entropy_contribution": random_bytes(32).hex(),
                 "leader_key": random_bytes(32).hex(),
-                "proof": list(random_bytes(128)),
+                "proof": random_bytes(128).hex(),
                 "voucher_cm": random_bytes(32).hex(),
             }
         )

@@ -9,14 +9,31 @@ from models.transactions.transaction import Transaction
 from node.api.serializers.operation import (
     ChannelInscribeOpSerializer,
     LedgerOpSerializer,
+    SDPActiveOpSerializer,
+    SDPDeclareOpSerializer,
 )
 from node.api.serializers.proof import (
     Ed25519SignatureSerializer,
     OperationProofSerializerField,
+    ZkAndEd25519SignaturesSerializer,
     ZkSignatureSerializer,
 )
 from node.api.serializers.transaction import TransactionSerializer
 from utils.protocols import FromRandom
+
+
+def _proof_to_internal(proof) -> dict:
+    if isinstance(proof, ZkSignatureSerializer):
+        return {"type": "Zk", "signature": proof.to_bytes()}
+    if isinstance(proof, Ed25519SignatureSerializer):
+        return {"type": "Ed25519", "signature": proof.root}
+    if isinstance(proof, ZkAndEd25519SignaturesSerializer):
+        return {
+            "type": "ZkAndEd25519",
+            "zk_signature": proof.zk_signature.to_bytes(),
+            "ed25519_signature": proof.ed25519_signature,
+        }
+    raise ValueError(f"Unsupported proof type: {type(proof).__name__}")
 
 
 class SignedTransactionSerializer(NbeSerializer, FromRandom):
@@ -53,10 +70,7 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
                             "inputs": list(op.inputs),
                             "outputs": [o.into_note() for o in op.outputs],
                         },
-                        "proof": {
-                            "type": "Zk",
-                            "signature": proof.to_bytes(),
-                        },
+                        "proof": _proof_to_internal(proof),
                     }
                 )
             elif isinstance(op, ChannelInscribeOpSerializer):
@@ -73,10 +87,33 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
                             "parent": op.parent,
                             "signer": op.signer,
                         },
-                        "proof": {
-                            "type": "Ed25519",
-                            "signature": proof.root,
+                        "proof": _proof_to_internal(proof),
+                    }
+                )
+            elif isinstance(op, SDPDeclareOpSerializer):
+                operations.append(
+                    {
+                        "content": {
+                            "type": "SDPDeclare",
+                            "service_type": op.service_type,
+                            "locators": list(op.locators),
+                            "provider_id": op.provider_id,
+                            "zk_id": op.zk_id,
+                            "locked_note_id": op.locked_note_id,
                         },
+                        "proof": _proof_to_internal(proof),
+                    }
+                )
+            elif isinstance(op, SDPActiveOpSerializer):
+                operations.append(
+                    {
+                        "content": {
+                            "type": "SDPActive",
+                            "declaration_id": op.declaration_id,
+                            "nonce": op.nonce,
+                            "metadata": op.metadata,
+                        },
+                        "proof": _proof_to_internal(proof),
                     }
                 )
             else:

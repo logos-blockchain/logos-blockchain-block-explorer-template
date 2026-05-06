@@ -10,7 +10,7 @@ from models.transactions.operations.proofs import (
     ZkAndEd25519Signature,
     ZkSignature,
 )
-from node.api.serializers.fields import BytesFromIntArray
+from node.api.serializers.fields import BytesFromHex, BytesFromIntArray
 from utils.protocols import EnforceSubclassFromRandom
 from utils.random import random_bytes
 
@@ -65,13 +65,13 @@ class ZkSignatureSerializer(OperationProofSerializer, NbeSerializer):
 
 
 class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
-    zk_signature: BytesFromIntArray = Field(alias="zk_sig")
-    ed25519_signature: BytesFromIntArray = Field(alias="ed25519_sig")
+    zk_signature: ZkSignatureSerializer = Field(alias="zk_sig")
+    ed25519_signature: BytesFromHex = Field(alias="ed25519_sig")
 
     def into_operation_proof(self) -> NbeSignature:
         return ZkAndEd25519Signature.model_validate(
             {
-                "zk_signature": self.zk_signature,
+                "zk_signature": self.zk_signature.to_bytes(),
                 "ed25519_signature": self.ed25519_signature,
             }
         )
@@ -80,8 +80,12 @@ class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
     def from_random(cls, *args, **kwargs) -> Self:
         return ZkAndEd25519SignaturesSerializer.model_validate(
             {
-                "zk_sig": list(random_bytes(32)),
-                "ed25519_sig": list(random_bytes(64)),
+                "zk_sig": {
+                    "pi_a": list(random_bytes(32)),
+                    "pi_b": list(random_bytes(64)),
+                    "pi_c": list(random_bytes(32)),
+                },
+                "ed25519_sig": random_bytes(64).hex(),
             }
         )
 
