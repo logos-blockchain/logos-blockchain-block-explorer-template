@@ -95,7 +95,7 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
     app.state.node_manager = build_node_manager(app.settings)
     app.state.node_api = build_node_api(app.settings)
 
-    db_client = SqliteClient()
+    db_client = SqliteClient(sqlite_db_path=app.settings.database_url)
     app.state.db_client = db_client
     app.state.block_repository = BlockRepository(db_client)
     app.state.transaction_repository = TransactionRepository(db_client)
