@@ -120,6 +120,8 @@ NBE_NODE_API_PROTOCOL=http  # Only used if NODE_API=http
 
 NBE_HOST=0.0.0.0  # Block Explorer's listening host
 NBE_PORT=8000  # Block Explorer's listening port
+
+NBE_DATABASE_URL=sqlite:///sqlite.db  # Database connection URL
 ```
 If running the Block Explorer with Docker, these can be overridden.
 

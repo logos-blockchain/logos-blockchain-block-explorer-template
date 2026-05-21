@@ -31,6 +31,8 @@ class NBESettings(BaseSettings):
     node_api_protocol: str = Field(alias="NBE_NODE_API_PROTOCOL", default="http")
     node_api_auth: Optional[Authentication] = Field(alias="NBE_NODE_API_AUTH", default=None)
 
+    database_url: str = Field(alias="NBE_DATABASE_URL", default=f"sqlite:///{DIR_REPO}/sqlite.db")
+
     @field_validator("node_api_auth", mode="before")
     @classmethod
     def parse_auth(cls, value: str) -> Optional[Authentication]:
