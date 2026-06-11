@@ -31,4 +31,9 @@ class ZkAndEd25519Signature(NbeSignature):
     ed25519_signature: HexBytes
 
 
-OperationProof = Ed25519Signature | ZkSignature | ZkAndEd25519Signature
+class UnknownSignature(NbeSignature):
+    type: Literal["Unknown"] = "Unknown"
+    signature: HexBytes
+
+
+OperationProof = Ed25519Signature | ZkSignature | ZkAndEd25519Signature | UnknownSignature

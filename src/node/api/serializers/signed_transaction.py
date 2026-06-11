@@ -80,7 +80,18 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
                     }
                 )
             else:
-                raise ValueError(f"Unsupported mantle op type: {type(op).__name__}")
+                # Gracefully handle unknown ops. We assume that whatever comes from the node is correct.
+                operations.append({
+                    "content": {
+                        "type": "UnknownOp",
+                        "opcode": getattr(op, "opcode", "unknown"),
+                        "raw_payload": op.model_dump() if hasattr(op, "model_dump") else str(op),
+                    },
+                    "proof": {
+                        "type": "Unknown",
+                        "signature": proof.to_bytes() if hasattr(proof, "to_bytes") else getattr(proof, "root", b""),
+                    },
+                })
 
         return Transaction.model_validate(
             {

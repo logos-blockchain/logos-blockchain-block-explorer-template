@@ -51,6 +51,11 @@ class ChannelInscribeOpSerializer(NbeSerializer, FromRandom):
             }
         )
 
+class UnknownOpSerializer(NbeSerializer):
+    """Fallback serializer for unrecognized opcodes."""
+    opcode: int
+    payload: dict[str, Any] = Field(default_factory=dict)
+
 
 OPCODE_TO_SERIALIZER: dict[int, type] = {
     OPCODE_LEDGER: LedgerOpSerializer,
@@ -58,19 +63,17 @@ OPCODE_TO_SERIALIZER: dict[int, type] = {
 }
 
 
-def _parse_mantle_op(data: Any) -> Union[LedgerOpSerializer, ChannelInscribeOpSerializer]:
-    if isinstance(data, (LedgerOpSerializer, ChannelInscribeOpSerializer)):
+def _parse_mantle_op(data: Any) -> Any:
+    if isinstance(data, (LedgerOpSerializer, ChannelInscribeOpSerializer, UnknownOpSerializer)):
         return data
     if isinstance(data, dict) and "opcode" in data:
         opcode = data["opcode"]
         serializer_class = OPCODE_TO_SERIALIZER.get(opcode)
         if serializer_class is None:
-            raise ValueError(
-                f"Unsupported mantle op opcode {opcode}; known opcodes: {sorted(OPCODE_TO_SERIALIZER)}."
-            )
+            return UnknownOpSerializer(opcode=opcode, payload=data.get("payload", {}))
         return serializer_class.model_validate(data["payload"])
     raise ValueError(f"Cannot parse mantle op from {type(data).__name__}.")
 
 
-MantleOpSerializerVariants = Union[LedgerOpSerializer, ChannelInscribeOpSerializer]
+MantleOpSerializerVariants = Union[LedgerOpSerializer, ChannelInscribeOpSerializer, UnknownOpSerializer]
 MantleOpSerializerField = Annotated[MantleOpSerializerVariants, BeforeValidator(_parse_mantle_op)]

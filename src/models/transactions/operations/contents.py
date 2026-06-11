@@ -85,6 +85,20 @@ class LeaderClaim(NbeContent):
     mantle_tx_hash: HexBytes
 
 
+class UnknownOp(NbeContent):
+    type: Literal["UnknownOp"] = "UnknownOp"
+    opcode: int | str
+    raw_payload: dict | str
+
+
 OperationContent = (
-    LedgerTransfer | ChannelInscribe | ChannelBlob | ChannelSetKeys | SDPDeclare | SDPWithdraw | SDPActive | LeaderClaim
+    LedgerTransfer
+    | ChannelInscribe
+    | ChannelBlob
+    | ChannelSetKeys
+    | SDPDeclare
+    | SDPWithdraw
+    | SDPActive
+    | LeaderClaim
+    | UnknownOp
 )
