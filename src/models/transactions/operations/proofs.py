@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal, Optional
 
 from core.models import NbeSchema
 from core.types import HexBytes
@@ -31,4 +31,15 @@ class ZkAndEd25519Signature(NbeSignature):
     ed25519_signature: HexBytes
 
 
-OperationProof = Ed25519Signature | ZkSignature | ZkAndEd25519Signature
+class UnknownSignature(NbeSignature):
+    """Fallback for proof variants without a typed model (same approach as #19).
+
+    `raw` holds the value verbatim — it covers unit variants like "NoProof"
+    (which carry no signature bytes) as well as future tagged variants.
+    """
+
+    type: Literal["Unknown"] = "Unknown"
+    raw: Optional[Any] = None
+
+
+OperationProof = Ed25519Signature | ZkSignature | ZkAndEd25519Signature | UnknownSignature
