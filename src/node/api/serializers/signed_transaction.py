@@ -8,13 +8,16 @@ from core.models import NbeSerializer
 from models.transactions.transaction import Transaction
 from node.api.serializers.operation import (
     ChannelInscribeOpSerializer,
+    ChannelSetKeysOpSerializer,
     LedgerOpSerializer,
     SDPActiveOpSerializer,
     SDPDeclareOpSerializer,
+    UnknownOpSerializer,
 )
 from node.api.serializers.proof import (
     Ed25519SignatureSerializer,
     OperationProofSerializerField,
+    UnknownProofSerializer,
     ZkAndEd25519SignaturesSerializer,
     ZkSignatureSerializer,
 )
@@ -33,6 +36,8 @@ def _proof_to_internal(proof) -> dict:
             "zk_signature": proof.zk_signature.to_bytes(),
             "ed25519_signature": proof.ed25519_signature,
         }
+    if isinstance(proof, UnknownProofSerializer):
+        return {"type": "Unknown", "raw": proof.raw}
     raise ValueError(f"Unsupported proof type: {type(proof).__name__}")
 
 
@@ -44,7 +49,12 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
     )
 
     def _compute_hash(self) -> bytes:
-        data = self.transaction.model_dump(mode="json")
+        # Prefer the canonical hash reported by the node (newer nodes include it
+        # in mantle_tx). A locally computed JSON hash will NOT match the chain's
+        # real tx hash, so it is only a last-resort fallback for older nodes.
+        if self.transaction.hash is not None:
+            return self.transaction.hash
+        data = self.transaction.model_dump(mode="json", exclude={"hash"})
         canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).digest()
 
@@ -112,6 +122,28 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
                             "declaration_id": op.declaration_id,
                             "nonce": op.nonce,
                             "metadata": op.metadata,
+                        },
+                        "proof": _proof_to_internal(proof),
+                    }
+                )
+            elif isinstance(op, ChannelSetKeysOpSerializer):
+                operations.append(
+                    {
+                        "content": {
+                            "type": "ChannelSetKeys",
+                            "channel": op.channel,
+                            "keys": list(op.keys),
+                        },
+                        "proof": _proof_to_internal(proof),
+                    }
+                )
+            elif isinstance(op, UnknownOpSerializer):
+                operations.append(
+                    {
+                        "content": {
+                            "type": "UnknownOp",
+                            "opcode": op.opcode,
+                            "raw_payload": op.payload,
                         },
                         "proof": _proof_to_internal(proof),
                     }

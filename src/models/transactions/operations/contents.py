@@ -48,7 +48,9 @@ class ChannelBlob(NbeContent):
 class ChannelSetKeys(NbeContent):
     type: Literal["ChannelSetKeys"] = "ChannelSetKeys"
     channel: HexBytes
-    keys: List[bytes]
+    # HexBytes (not plain bytes): content is stored as JSON in the DB, and raw
+    # bytes break its utf-8 encoding for arbitrary key material.
+    keys: List[HexBytes]
 
 
 class SDPDeclareServiceType(Enum):
@@ -85,6 +87,26 @@ class LeaderClaim(NbeContent):
     mantle_tx_hash: HexBytes
 
 
+class UnknownOp(NbeContent):
+    """Fallback for mantle ops without a typed model (same approach as #19).
+
+    Preserves the opcode and raw payload verbatim so new node op types never
+    break block ingestion; typed support can be added later.
+    """
+
+    type: Literal["UnknownOp"] = "UnknownOp"
+    opcode: int
+    raw_payload: Optional[Any] = None
+
+
 OperationContent = (
-    LedgerTransfer | ChannelInscribe | ChannelBlob | ChannelSetKeys | SDPDeclare | SDPWithdraw | SDPActive | LeaderClaim
+    LedgerTransfer
+    | ChannelInscribe
+    | ChannelBlob
+    | ChannelSetKeys
+    | SDPDeclare
+    | SDPWithdraw
+    | SDPActive
+    | LeaderClaim
+    | UnknownOp
 )
