@@ -14,7 +14,11 @@ from node.api.http import normalize_info_payload
 from node.api.serializers.block import BlockSerializer
 from node.api.serializers.fields import bytes_from_hex_or_intarray
 from node.api.serializers.info import InfoSerializer
-from node.api.serializers.operation import ChannelSetKeysOpSerializer, UnknownOpSerializer
+from node.api.serializers.operation import (
+    ChannelConfigOpSerializer,
+    LeaderClaimOpSerializer,
+    UnknownOpSerializer,
+)
 from node.api.serializers.proof import Ed25519SignatureSerializer
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -41,6 +45,39 @@ class TestInfoNormalization:
         info = InfoSerializer.model_validate(normalize_info_payload(payload))
         assert info.mode == "Online"
         assert info.height == 2
+
+    def test_021_format_with_state_and_phase(self):
+        # 0.2.x nodes report "state" instead of "mode" and add a top-level "phase".
+        payload = {
+            "cryptarchia_info": {"lib": "aa", "lib_slot": 9, "tip": "bb", "slot": 10, "height": 3, "state": "Online"},
+            "phase": "Following",
+        }
+        info = InfoSerializer.model_validate(normalize_info_payload(payload))
+        assert info.mode == "Online"
+        assert info.height == 3
+
+
+class TestBaseUrl:
+    @staticmethod
+    def _base_url(host, port=8080, protocol="http") -> str:
+        from types import SimpleNamespace
+
+        from node.api.http import HttpNodeApi
+
+        settings = SimpleNamespace(
+            node_api_host=host, node_api_port=port, node_api_protocol=protocol, node_api_timeout=60, node_api_auth=None
+        )
+        return HttpNodeApi(settings).base_url
+
+    def test_full_url_host_wins_over_protocol_and_port(self):
+        url = self._base_url("https://devnet.blockchain.logos.co/node/1", port=8080, protocol="http")
+        assert url == "https://devnet.blockchain.logos.co/node/1/"
+
+    def test_host_with_path(self):
+        assert self._base_url("example.com/node/1", port=0, protocol="https") == "https://example.com/node/1/"
+
+    def test_plain_host_and_port(self):
+        assert self._base_url("127.0.0.1", port=18080) == "http://127.0.0.1:18080"
 
 
 class TestHexOrIntArrayField:
@@ -125,21 +162,83 @@ class TestUnknownOps:
         assert operation.proof.raw == "NoProof"
 
 
-class TestChannelSetKeysOp:
-    @pytest.fixture
-    def setkeys_sample(self) -> dict:
-        """Real opcode 16 op + proof captured from the chain."""
-        samples = json.loads((FIXTURES / "ops_samples_testnet.json").read_text())
-        return samples["16"]
+class TestChannelConfigOp:
+    """Opcode 16 is ChannelConfig on 0.2.x nodes (previously set-keys)."""
 
-    def test_real_sample_parses(self, block, setkeys_sample):
+    def test_channel_config_parses(self, block):
+        payload = {
+            "channel": "ab" * 32,
+            "keys": ["cd" * 32],
+            "posting_timeframe": 10,
+            "posting_timeout": 20,
+            "configuration_threshold": 1,
+            "transfer_threshold": 2,
+        }
         tx = block["transactions"][0]
-        tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": setkeys_sample["payload"]}]
-        tx["ops_proofs"] = [setkeys_sample["proof"]]
+        tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": payload}]
+        tx["ops_proofs"] = [{"ChannelMultiSigProof": {"signatures": [{"signature": "ee" * 64, "channel_key_index": 0}]}}]
         parsed = BlockSerializer.model_validate(block)
         op = parsed.transactions[0].transaction.ops[0]
-        assert isinstance(op, ChannelSetKeysOpSerializer)
-        assert op.channel == bytes.fromhex(setkeys_sample["payload"]["channel"])
-        assert len(op.keys) == len(setkeys_sample["payload"]["keys"])
+        assert isinstance(op, ChannelConfigOpSerializer)
+        assert op.channel == bytes.fromhex(payload["channel"])
+        assert op.transfer_threshold == 2
+        operation = parsed.transactions[0].into_transaction().operations[0]
+        assert operation.content.type == "ChannelConfig"
+        assert operation.proof.type == "ChannelMultiSig"
+        assert operation.proof.signatures[0].channel_key_index == 0
+
+    def test_legacy_setkeys_payload_degrades_to_unknown(self, block):
+        """Pre-0.2.x opcode 16 payloads lack the config fields; they must not
+        break ingestion."""
+        samples = json.loads((FIXTURES / "ops_samples_testnet.json").read_text())
+        legacy = samples["16"]
+        tx = block["transactions"][0]
+        tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": legacy["payload"]}]
+        tx["ops_proofs"] = [legacy["proof"]]
+        parsed = BlockSerializer.model_validate(block)
+        op = parsed.transactions[0].transaction.ops[0]
+        assert isinstance(op, UnknownOpSerializer)
         content = parsed.transactions[0].into_transaction().operations[0].content
-        assert content.type == "ChannelSetKeys"
+        assert content.type == "UnknownOp"
+        assert content.opcode == 16
+
+
+class TestNewOps:
+    """Ops introduced with the 0.2.x wire format."""
+
+    def test_leader_claim_with_poc_proof(self, block):
+        tx = block["transactions"][0]
+        tx["mantle_tx"]["ops"] = [
+            {"opcode": 48, "payload": {"rewards_root": "aa" * 32, "voucher_nullifier": "bb" * 32, "pk": "cc" * 32}}
+        ]
+        tx["ops_proofs"] = [{"PoC": {"proof": "dd" * 128}}]
+        parsed = BlockSerializer.model_validate(block)
+        op = parsed.transactions[0].transaction.ops[0]
+        assert isinstance(op, LeaderClaimOpSerializer)
+        operation = parsed.transactions[0].into_transaction().operations[0]
+        assert operation.content.type == "LeaderClaim"
+        assert operation.content.pk == bytes.fromhex("cc" * 32)
+        assert operation.proof.type == "PoC"
+        assert len(operation.proof.proof) == 128
+
+    @pytest.mark.parametrize(
+        ("opcode", "payload", "expected_type"),
+        [
+            (18, {"channel_id": "aa" * 32, "inputs": ["bb" * 32], "metadata": "beef"}, "ChannelDeposit"),
+            (19, {"channel_id": "aa" * 32, "inputs": ["bb" * 32]}, "ChannelWithdraw"),
+            (
+                20,
+                {"channel_id": "aa" * 32, "inputs": ["bb" * 32], "outputs": [{"value": 7, "pk": "cc" * 32}]},
+                "ChannelTransfer",
+            ),
+            (33, {"declaration_id": "aa" * 32, "nonce": 4, "locked_note_id": "bb" * 32}, "SDPWithdraw"),
+        ],
+        ids=["deposit", "withdraw", "channel-transfer", "sdp-withdraw"],
+    )
+    def test_new_op_parses(self, block, opcode, payload, expected_type):
+        tx = block["transactions"][0]
+        tx["mantle_tx"]["ops"] = [{"opcode": opcode, "payload": payload}]
+        tx["ops_proofs"] = [{"Ed25519Sig": "ee" * 64}]
+        parsed = BlockSerializer.model_validate(block)
+        content = parsed.transactions[0].into_transaction().operations[0].content
+        assert content.type == expected_type

@@ -24,12 +24,14 @@ logger = logging.getLogger(__name__)
 def normalize_info_payload(data: dict) -> dict:
     """Normalize cryptarchia/info responses.
 
-    Current nodes wrap the fields under "cryptarchia_info" and report mode as
-    a (possibly nested) object like {"Started": "Online"}; flat payloads with a
-    plain string mode pass through unchanged.
+    Current nodes (0.2.x) wrap the fields under "cryptarchia_info", report the
+    consensus mode as "state" (e.g. "Online") and add a top-level "phase".
+    Older nodes reported mode as a (possibly nested) object like
+    {"Started": "Online"}; flat payloads with a plain string mode pass through
+    unchanged.
     """
     info = dict(data.get("cryptarchia_info", data))
-    mode = data.get("mode", info.get("mode"))
+    mode = data.get("mode", info.get("mode", info.get("state")))
     while isinstance(mode, dict):
         mode = next(iter(mode.values()), "Unknown") if mode else "Unknown"
     info["mode"] = mode if isinstance(mode, str) else str(mode)
@@ -58,6 +60,14 @@ class HttpNodeApi(NodeApi):
 
     @property
     def base_url(self) -> str:
+        if "://" in self.host:
+            # Full URL (e.g. "https://devnet.blockchain.logos.co/node/1"):
+            # scheme, host and path come from it; protocol/port settings are
+            # ignored.
+            url = self.host
+            if not url.endswith("/"):
+                url += "/"
+            return url
         if "/" in self.host:
             host, path = self.host.split("/", 1)
             path = f"/{path}"

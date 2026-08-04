@@ -282,6 +282,6 @@ export default function BlocksTable({ live, onDisableLive }) {
             ),
         ),
         // Error display
-        error && h('div', { style: 'padding:8px 14px; color:#ff8a8a;' }, `Error: ${error}`),
+        error && h('div', { style: 'padding:8px 14px; color:var(--danger);' }, `Error: ${error}`),
     );
 }

@@ -2,26 +2,12 @@ import { h } from 'preact';
 import { useState } from 'preact/hooks';
 import BlocksTable from '../components/BlocksTable.js';
 import TransactionsTable from '../components/TransactionsTable.js';
+import ChannelsPanel from '../components/ChannelsPanel.js';
 
 export default function HomeView() {
     const [live, setLive] = useState(true);
 
     const toggleLive = () => setLive((prev) => !prev);
-
-    const liveButtonStyle = live
-        ? `
-            cursor: pointer;
-            background: #ff4444;
-            color: white;
-            border: none;
-            animation: live-pulse 1.5s ease-in-out infinite;
-        `
-        : `
-            cursor: pointer;
-            background: var(--bg-secondary, #333);
-            color: var(--muted, #888);
-            border: 1px solid var(--border, #444);
-        `;
 
     return h(
         'main',
@@ -32,12 +18,11 @@ export default function HomeView() {
             h(
                 'button',
                 {
-                    class: 'pill',
-                    style: liveButtonStyle,
+                    class: `pill live-toggle ${live ? 'is-live' : ''}`,
                     onClick: toggleLive,
                     title: live ? 'Live updates enabled' : 'Click to enable live updates',
                 },
-                live ? 'LIVE \u2022' : 'LIVE',
+                live ? 'LIVE \u25cf' : 'LIVE',
             ),
         ),
         h(
@@ -46,5 +31,6 @@ export default function HomeView() {
             h(BlocksTable, { live, onDisableLive: () => setLive(false) }),
             h(TransactionsTable, { live, onDisableLive: () => setLive(false) }),
         ),
+        h(ChannelsPanel, null),
     );
 }

@@ -50,7 +50,7 @@ def repo(client):
 def test_genesis_block_gets_fork_zero(client, repo):
     """A genesis block (slot 0) should get fork 0."""
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     forks = get_forks(client)
     assert forks[b"\x01"] == 0
@@ -63,16 +63,16 @@ def test_linear_chain_inherits_fork(client, repo):
     genesis -> A -> B -> C   (all fork 0)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     b = make_block(b"\x03", parent=b"\x02", slot=2)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     c = make_block(b"\x04", parent=b"\x03", slot=3)
-    asyncio.run(repo.create(c))
+    asyncio.run(repo.create([c]))
 
     forks = get_forks(client)
     assert forks[b"\x01"] == 0
@@ -89,14 +89,14 @@ def test_fork_on_second_child(client, repo):
            \\-> B   (fork 1, second child — triggers new fork)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     # B has the same parent as A
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     forks = get_forks(client)
     assert forks[b"\x01"] == 0
@@ -112,21 +112,21 @@ def test_fork_descendants_inherit(client, repo):
            \\-> B -> D   (B is fork 1, D inherits fork 1)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     # C extends A (fork 0)
     c = make_block(b"\x04", parent=b"\x02", slot=2)
-    asyncio.run(repo.create(c))
+    asyncio.run(repo.create([c]))
 
     # D extends B (fork 1)
     d = make_block(b"\x05", parent=b"\x03", slot=2)
-    asyncio.run(repo.create(d))
+    asyncio.run(repo.create([d]))
 
     forks = get_forks(client)
     assert forks[b"\x04"] == 0  # inherits from A
@@ -142,16 +142,16 @@ def test_multiple_forks_from_same_parent(client, repo):
            \\-> C   (fork 2)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     c = make_block(b"\x04", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(c))
+    asyncio.run(repo.create([c]))
 
     forks = get_forks(client)
     assert forks[b"\x02"] == 0
@@ -167,11 +167,11 @@ def test_fork_in_same_batch(client, repo):
            \\-> B   (fork 1)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a, b))
+    asyncio.run(repo.create([a, b]))
 
     forks = get_forks(client)
     assert forks[b"\x02"] == 0  # first child inherits
@@ -185,7 +185,7 @@ def test_chain_in_single_batch(client, repo):
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
     a = make_block(b"\x02", parent=b"\x01", slot=1)
     b = make_block(b"\x03", parent=b"\x02", slot=2)
-    asyncio.run(repo.create(genesis, a, b))
+    asyncio.run(repo.create([genesis, a, b]))
 
     forks = get_forks(client)
     assert forks[b"\x01"] == 0
@@ -204,25 +204,25 @@ def test_fork_numbering_is_global(client, repo):
                     \\-> E   (fork 2, not fork 1 — counter is global)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     # Fork at genesis
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))  # fork 1
+    asyncio.run(repo.create([b]))  # fork 1
 
     c = make_block(b"\x04", parent=b"\x02", slot=2)
-    asyncio.run(repo.create(c))
+    asyncio.run(repo.create([c]))
 
     # First child of C
     d = make_block(b"\x05", parent=b"\x04", slot=3)
-    asyncio.run(repo.create(d))
+    asyncio.run(repo.create([d]))
 
     # Second child of C — should be fork 2, not 1
     e = make_block(b"\x06", parent=b"\x04", slot=3)
-    asyncio.run(repo.create(e))
+    asyncio.run(repo.create([e]))
 
     forks = get_forks(client)
     assert forks[b"\x03"] == 1  # first fork
@@ -240,12 +240,12 @@ def test_batch_with_fork_and_chain(client, repo):
     Expected: A=fork 0, B=fork 1, C=fork 0 (inherits from A)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
     b = make_block(b"\x03", parent=b"\x01", slot=1)
     c = make_block(b"\x04", parent=b"\x02", slot=2)
-    asyncio.run(repo.create(a, b, c))
+    asyncio.run(repo.create([a, b, c]))
 
     forks = get_forks(client)
     assert forks[b"\x02"] == 0  # A inherits from genesis
@@ -268,7 +268,7 @@ def test_fork_choice_single_chain(client, repo):
     """Fork choice returns fork 0 for a single linear chain."""
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(genesis, a))
+    asyncio.run(repo.create([genesis, a]))
 
     result = asyncio.run(repo.get_fork_choice())
     assert result.unwrap() == 0
@@ -284,16 +284,16 @@ def test_fork_choice_returns_longest_fork(client, repo):
     Fork 0 is longer, so fork choice should return 0.
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     c = make_block(b"\x04", parent=b"\x02", slot=2)
-    asyncio.run(repo.create(c))
+    asyncio.run(repo.create([c]))
 
     result = asyncio.run(repo.get_fork_choice())
     assert result.unwrap() == 0
@@ -309,17 +309,17 @@ def test_fork_choice_switches_on_overtake(client, repo):
     Fork 1 is longer, so fork choice should return 1.
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     # Fork 0 has height 1 (block A). Now extend fork 1 past it.
     c = make_block(b"\x04", parent=b"\x03", slot=2)
-    asyncio.run(repo.create(c))
+    asyncio.run(repo.create([c]))
 
     result = asyncio.run(repo.get_fork_choice())
     assert result.unwrap() == 1
@@ -340,13 +340,13 @@ def test_get_latest_follows_chain(client, repo):
     Fork 1 chain: genesis, B  (genesis is a shared ancestor)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     fork0_blocks = asyncio.run(repo.get_latest(10, fork=0))
     fork1_blocks = asyncio.run(repo.get_latest(10, fork=1))
@@ -372,16 +372,16 @@ def test_get_paginated_follows_chain(client, repo):
     Fork 1 chain: genesis, B     (count=2, crosses fork boundary)
     """
     genesis = make_block(b"\x01", parent=b"\x00", slot=0)
-    asyncio.run(repo.create(genesis))
+    asyncio.run(repo.create([genesis]))
 
     a = make_block(b"\x02", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(a))
+    asyncio.run(repo.create([a]))
 
     b = make_block(b"\x03", parent=b"\x01", slot=1)
-    asyncio.run(repo.create(b))
+    asyncio.run(repo.create([b]))
 
     c = make_block(b"\x04", parent=b"\x02", slot=2)
-    asyncio.run(repo.create(c))
+    asyncio.run(repo.create([c]))
 
     blocks_f0, count_f0 = asyncio.run(repo.get_paginated(0, 10, fork=0))
     blocks_f1, count_f1 = asyncio.run(repo.get_paginated(0, 10, fork=1))

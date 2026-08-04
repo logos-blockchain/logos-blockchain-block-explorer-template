@@ -402,7 +402,7 @@ function OperationProof({ proof }) {
 
     return h(
         'div',
-        { style: 'margin-top:8px; padding-top:8px; border-top:1px solid #1f2435;' },
+        { style: 'margin-top:8px; padding-top:8px; border-top:1px solid var(--border);' },
         h('span', { style: 'color:var(--muted); font-size:12px;' }, `Proof: ${proofType}`),
         entries.length > 0 &&
             h(
@@ -429,12 +429,12 @@ function OperationCard({ op, index }) {
 
     return h(
         'div',
-        { style: 'background:#0e1320; border:1px solid #1f2435; border-radius:8px; padding:12px 14px;' },
+        { style: 'background:var(--panel); border:1px solid var(--border); padding:12px 14px;' },
         h(
             'div',
             { style: 'display:flex; align-items:center; gap:8px; margin-bottom:10px;' },
             h('span', { class: 'pill', style: 'font-size:11px;' }, `#${index}`),
-            h('span', { class: 'pill', style: 'background:rgba(63,185,80,0.12); color:var(--accent);' }, type),
+            h('span', { class: 'pill', style: 'background:var(--accent-bg); color:var(--accent); border-color:var(--accent);' }, type),
         ),
         h(OperationContent, { content }),
         h(OperationProof, { proof }),
@@ -526,14 +526,14 @@ export default function TransactionDetail({ parameters }) {
         ),
 
         // Errors
-        err?.kind === 'invalid' && h('p', { style: 'color:#ff8a8a' }, err.msg),
+        err?.kind === 'invalid' && h('p', { style: 'color:var(--danger)' }, err.msg),
         err?.kind === 'not-found' &&
             h(
                 SectionCard,
                 { title: 'Transaction not found' },
                 h('p', null, 'We could not find a transaction with that identifier.'),
             ),
-        err?.kind === 'network' && h('p', { style: 'color:#ff8a8a' }, `Error: ${err.msg}`),
+        err?.kind === 'network' && h('p', { style: 'color:var(--danger)' }, `Error: ${err.msg}`),
 
         // Loading
         !tx && !err && h('p', null, 'Loading…'),

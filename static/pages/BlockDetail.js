@@ -159,7 +159,7 @@ export default function BlockDetailPage({ parameters }) {
         ),
 
         // Error states
-        errorKind === 'invalid-hash' && h('p', { style: 'color:#ff8a8a' }, errorMessage),
+        errorKind === 'invalid-hash' && h('p', { style: 'color:var(--danger)' }, errorMessage),
         errorKind === 'not-found' &&
             h(
                 'div',
@@ -171,7 +171,7 @@ export default function BlockDetailPage({ parameters }) {
                     h('p', null, 'We could not find a block with that identifier.'),
                 ),
             ),
-        errorKind === 'network' && h('p', { style: 'color:#ff8a8a' }, `Error: ${errorMessage}`),
+        errorKind === 'network' && h('p', { style: 'color:var(--danger)' }, `Error: ${errorMessage}`),
 
         // Loading
         !block && !errorKind && h('p', null, 'Loading…'),

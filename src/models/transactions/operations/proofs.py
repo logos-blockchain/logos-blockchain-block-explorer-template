@@ -9,6 +9,8 @@ class SignatureType(Enum):
     ED25519 = "Ed25519"
     ZK = "Zk"
     ZK_AND_ED25519 = "ZkAndEd25519"
+    POC = "PoC"
+    CHANNEL_MULTI_SIG = "ChannelMultiSig"
 
 
 class NbeSignature(NbeSchema):
@@ -31,6 +33,21 @@ class ZkAndEd25519Signature(NbeSignature):
     ed25519_signature: HexBytes
 
 
+class PoCSignature(NbeSignature):
+    type: Literal["PoC"] = "PoC"
+    proof: HexBytes
+
+
+class IndexedSignature(NbeSchema):
+    signature: HexBytes
+    channel_key_index: int
+
+
+class ChannelMultiSignature(NbeSignature):
+    type: Literal["ChannelMultiSig"] = "ChannelMultiSig"
+    signatures: list[IndexedSignature]
+
+
 class UnknownSignature(NbeSignature):
     """Fallback for proof variants without a typed model (same approach as #19).
 
@@ -42,4 +59,6 @@ class UnknownSignature(NbeSignature):
     raw: Optional[Any] = None
 
 
-OperationProof = Ed25519Signature | ZkSignature | ZkAndEd25519Signature | UnknownSignature
+OperationProof = (
+    Ed25519Signature | ZkSignature | ZkAndEd25519Signature | PoCSignature | ChannelMultiSignature | UnknownSignature
+)

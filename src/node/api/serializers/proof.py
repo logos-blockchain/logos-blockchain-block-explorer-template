@@ -5,8 +5,10 @@ from pydantic import BeforeValidator, Field, RootModel
 
 from core.models import NbeSerializer
 from models.transactions.operations.proofs import (
+    ChannelMultiSignature,
     Ed25519Signature,
     NbeSignature,
+    PoCSignature,
     UnknownSignature,
     ZkAndEd25519Signature,
     ZkSignature,
@@ -91,6 +93,45 @@ class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
         )
 
 
+class PoCProofSerializer(OperationProofSerializer, NbeSerializer):
+    """Groth16 leader claim (PoC) proof: 128 proof bytes."""
+
+    proof: BytesFromHexOrIntArray
+
+    def into_operation_proof(self) -> NbeSignature:
+        return PoCSignature.model_validate({"proof": self.proof})
+
+    @classmethod
+    def from_random(cls, *args, **kwargs) -> Self:
+        return cls.model_validate({"proof": random_bytes(128).hex()})
+
+
+class IndexedSignatureSerializer(NbeSerializer):
+    signature: BytesFromHexOrIntArray = Field(description="Ed25519 signature bytes.")
+    channel_key_index: int = Field(description="Index into the channel's key list (u16).")
+
+
+class ChannelMultiSigProofSerializer(OperationProofSerializer, NbeSerializer):
+    """Multi-signature proof for channel config/withdraw/transfer ops."""
+
+    signatures: list[IndexedSignatureSerializer]
+
+    def into_operation_proof(self) -> NbeSignature:
+        return ChannelMultiSignature.model_validate(
+            {
+                "signatures": [
+                    {"signature": s.signature, "channel_key_index": s.channel_key_index} for s in self.signatures
+                ],
+            }
+        )
+
+    @classmethod
+    def from_random(cls, *args, **kwargs) -> Self:
+        return cls.model_validate(
+            {"signatures": [{"signature": random_bytes(64).hex(), "channel_key_index": 0}]}
+        )
+
+
 class UnknownProofSerializer(OperationProofSerializer, NbeSerializer):
     """Fallback for proof variants without a typed serializer (e.g. NoProof).
 
@@ -112,6 +153,8 @@ PROOF_TAG_TO_SERIALIZER = {
     "Ed25519Sig": Ed25519SignatureSerializer,
     "ZkSig": ZkSignatureSerializer,
     "ZkAndEd25519Sigs": ZkAndEd25519SignaturesSerializer,
+    "PoC": PoCProofSerializer,
+    "ChannelMultiSigProof": ChannelMultiSigProofSerializer,
 }
 
 
@@ -121,14 +164,22 @@ def _parse_proof(data: Any) -> OperationProofSerializer:
     if isinstance(data, dict):
         for tag, serializer_class in PROOF_TAG_TO_SERIALIZER.items():
             if tag in data:
-                return serializer_class.model_validate(data[tag])
+                try:
+                    return serializer_class.model_validate(data[tag])
+                except Exception:
+                    break
     # Unit variants (e.g. "NoProof") arrive as plain strings; unknown tagged
     # variants arrive as dicts that matched no known tag. Keep them verbatim.
     return UnknownProofSerializer.model_validate({"raw": data})
 
 
 OperationProofSerializerVariants = Union[
-    Ed25519SignatureSerializer, ZkSignatureSerializer, ZkAndEd25519SignaturesSerializer, UnknownProofSerializer
+    Ed25519SignatureSerializer,
+    ZkSignatureSerializer,
+    ZkAndEd25519SignaturesSerializer,
+    PoCProofSerializer,
+    ChannelMultiSigProofSerializer,
+    UnknownProofSerializer,
 ]
 OperationProofSerializerField = Annotated[
     OperationProofSerializerVariants,

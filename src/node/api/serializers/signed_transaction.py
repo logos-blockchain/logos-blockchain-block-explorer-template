@@ -7,16 +7,23 @@ from pydantic import Field
 from core.models import NbeSerializer
 from models.transactions.transaction import Transaction
 from node.api.serializers.operation import (
+    ChannelConfigOpSerializer,
+    ChannelDepositOpSerializer,
     ChannelInscribeOpSerializer,
-    ChannelSetKeysOpSerializer,
+    ChannelTransferOpSerializer,
+    ChannelWithdrawOpSerializer,
+    LeaderClaimOpSerializer,
     LedgerOpSerializer,
     SDPActiveOpSerializer,
     SDPDeclareOpSerializer,
+    SDPWithdrawOpSerializer,
     UnknownOpSerializer,
 )
 from node.api.serializers.proof import (
+    ChannelMultiSigProofSerializer,
     Ed25519SignatureSerializer,
     OperationProofSerializerField,
+    PoCProofSerializer,
     UnknownProofSerializer,
     ZkAndEd25519SignaturesSerializer,
     ZkSignatureSerializer,
@@ -36,9 +43,102 @@ def _proof_to_internal(proof) -> dict:
             "zk_signature": proof.zk_signature.to_bytes(),
             "ed25519_signature": proof.ed25519_signature,
         }
+    if isinstance(proof, PoCProofSerializer):
+        return {"type": "PoC", "proof": proof.proof}
+    if isinstance(proof, ChannelMultiSigProofSerializer):
+        return {
+            "type": "ChannelMultiSig",
+            "signatures": [
+                {"signature": s.signature, "channel_key_index": s.channel_key_index} for s in proof.signatures
+            ],
+        }
     if isinstance(proof, UnknownProofSerializer):
         return {"type": "Unknown", "raw": proof.raw}
     raise ValueError(f"Unsupported proof type: {type(proof).__name__}")
+
+
+def _op_to_content(op) -> dict:
+    if isinstance(op, LedgerOpSerializer):
+        return {
+            "type": "LedgerTransfer",
+            "inputs": list(op.inputs),
+            "outputs": [o.into_note() for o in op.outputs],
+        }
+    if isinstance(op, ChannelConfigOpSerializer):
+        return {
+            "type": "ChannelConfig",
+            "channel": op.channel,
+            "keys": list(op.keys),
+            "posting_timeframe": op.posting_timeframe,
+            "posting_timeout": op.posting_timeout,
+            "configuration_threshold": op.configuration_threshold,
+            "transfer_threshold": op.transfer_threshold,
+        }
+    if isinstance(op, ChannelInscribeOpSerializer):
+        return {
+            "type": "ChannelInscribe",
+            "channel_id": op.channel_id,
+            "inscription": op.inscription,
+            "parent": op.parent,
+            "signer": op.signer,
+        }
+    if isinstance(op, ChannelDepositOpSerializer):
+        return {
+            "type": "ChannelDeposit",
+            "channel_id": op.channel_id,
+            "inputs": list(op.inputs),
+            "metadata": op.metadata,
+        }
+    if isinstance(op, ChannelWithdrawOpSerializer):
+        return {
+            "type": "ChannelWithdraw",
+            "channel_id": op.channel_id,
+            "inputs": list(op.inputs),
+        }
+    if isinstance(op, ChannelTransferOpSerializer):
+        return {
+            "type": "ChannelTransfer",
+            "channel_id": op.channel_id,
+            "inputs": list(op.inputs),
+            "outputs": [o.into_note() for o in op.outputs],
+        }
+    if isinstance(op, SDPDeclareOpSerializer):
+        return {
+            "type": "SDPDeclare",
+            "service_type": op.service_type,
+            "locators": list(op.locators),
+            "provider_id": op.provider_id,
+            "zk_id": op.zk_id,
+            "locked_note_id": op.locked_note_id,
+        }
+    if isinstance(op, SDPWithdrawOpSerializer):
+        return {
+            "type": "SDPWithdraw",
+            "declaration_id": op.declaration_id,
+            "nonce": op.nonce,
+            "locked_note_id": op.locked_note_id,
+        }
+    if isinstance(op, SDPActiveOpSerializer):
+        return {
+            "type": "SDPActive",
+            "declaration_id": op.declaration_id,
+            "nonce": op.nonce,
+            "metadata": op.metadata,
+        }
+    if isinstance(op, LeaderClaimOpSerializer):
+        return {
+            "type": "LeaderClaim",
+            "rewards_root": op.rewards_root,
+            "voucher_nullifier": op.voucher_nullifier,
+            "pk": op.pk,
+        }
+    if isinstance(op, UnknownOpSerializer):
+        return {
+            "type": "UnknownOp",
+            "opcode": op.opcode,
+            "raw_payload": op.payload,
+        }
+    raise ValueError(f"Unsupported mantle op type: {type(op).__name__}")
 
 
 class SignedTransactionSerializer(NbeSerializer, FromRandom):
@@ -66,90 +166,10 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
                 f"({len(self.operations_proofs)})."
             )
 
-        operations: List[dict] = []
-        for op, proof in zip(ops, self.operations_proofs):
-            if isinstance(op, LedgerOpSerializer):
-                if not isinstance(proof, ZkSignatureSerializer):
-                    raise ValueError(
-                        f"Expected a ZkSig (Groth16) proof for the ledger op, got {type(proof).__name__}."
-                    )
-                operations.append(
-                    {
-                        "content": {
-                            "type": "LedgerTransfer",
-                            "inputs": list(op.inputs),
-                            "outputs": [o.into_note() for o in op.outputs],
-                        },
-                        "proof": _proof_to_internal(proof),
-                    }
-                )
-            elif isinstance(op, ChannelInscribeOpSerializer):
-                if not isinstance(proof, Ed25519SignatureSerializer):
-                    raise ValueError(
-                        f"Expected an Ed25519Sig proof for the channel inscribe op, got {type(proof).__name__}."
-                    )
-                operations.append(
-                    {
-                        "content": {
-                            "type": "ChannelInscribe",
-                            "channel_id": op.channel_id,
-                            "inscription": op.inscription,
-                            "parent": op.parent,
-                            "signer": op.signer,
-                        },
-                        "proof": _proof_to_internal(proof),
-                    }
-                )
-            elif isinstance(op, SDPDeclareOpSerializer):
-                operations.append(
-                    {
-                        "content": {
-                            "type": "SDPDeclare",
-                            "service_type": op.service_type,
-                            "locators": list(op.locators),
-                            "provider_id": op.provider_id,
-                            "zk_id": op.zk_id,
-                            "locked_note_id": op.locked_note_id,
-                        },
-                        "proof": _proof_to_internal(proof),
-                    }
-                )
-            elif isinstance(op, SDPActiveOpSerializer):
-                operations.append(
-                    {
-                        "content": {
-                            "type": "SDPActive",
-                            "declaration_id": op.declaration_id,
-                            "nonce": op.nonce,
-                            "metadata": op.metadata,
-                        },
-                        "proof": _proof_to_internal(proof),
-                    }
-                )
-            elif isinstance(op, ChannelSetKeysOpSerializer):
-                operations.append(
-                    {
-                        "content": {
-                            "type": "ChannelSetKeys",
-                            "channel": op.channel,
-                            "keys": list(op.keys),
-                        },
-                        "proof": _proof_to_internal(proof),
-                    }
-                )
-            elif isinstance(op, UnknownOpSerializer):
-                operations.append(
-                    {
-                        "content": {
-                            "type": "UnknownOp",
-                            "opcode": op.opcode,
-                            "raw_payload": op.payload,
-                        },
-                        "proof": _proof_to_internal(proof),
-                    }
-                )
-            else:
-                raise ValueError(f"Unsupported mantle op type: {type(op).__name__}")
+        operations: List[dict] = [
+            {"content": _op_to_content(op), "proof": _proof_to_internal(proof)}
+            for op, proof in zip(ops, self.operations_proofs)
+        ]
 
         return Transaction.model_validate(
             {

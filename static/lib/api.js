@@ -19,6 +19,9 @@ const BLOCKS_STREAM = (fork) => `${joinUrl(API_PREFIX, 'blocks/stream')}?fork=${
 const BLOCKS_LIST = (page, pageSize, fork) =>
     `${joinUrl(API_PREFIX, 'blocks/list')}?page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}&fork=${encodeURIComponent(fork)}`;
 
+const CHANNELS_LIST = (fork, limit, opsLimit) =>
+    `${joinUrl(API_PREFIX, 'channels/list')}?fork=${encodeURIComponent(fork)}&limit=${encodeURIComponent(limit)}&ops-limit=${encodeURIComponent(opsLimit)}`;
+
 const TRANSACTIONS_STREAM_WITH_FORK = (fork) =>
     `${joinUrl(API_PREFIX, 'transactions/stream')}?fork=${encodeURIComponent(fork)}`;
 const TRANSACTIONS_LIST = (page, pageSize, fork) =>
@@ -27,6 +30,7 @@ const TRANSACTIONS_LIST = (page, pageSize, fork) =>
 export const API = {
     HEALTH_ENDPOINT,
     FORK_CHOICE,
+    CHANNELS_LIST,
     TRANSACTION_DETAIL_BY_HASH,
     TRANSACTIONS_STREAM,
     TRANSACTIONS_STREAM_WITH_FORK,
