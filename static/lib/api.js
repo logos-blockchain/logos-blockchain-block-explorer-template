@@ -21,6 +21,8 @@ const BLOCKS_LIST = (page, pageSize, fork) =>
 
 const CHANNELS_LIST = (fork, limit, opsLimit) =>
     `${joinUrl(API_PREFIX, 'channels/list')}?fork=${encodeURIComponent(fork)}&limit=${encodeURIComponent(limit)}&ops-limit=${encodeURIComponent(opsLimit)}`;
+const CHANNEL_DETAIL_BY_ID = (channelId, fork, page, pageSize) =>
+    `${joinUrl(API_PREFIX, 'channels', encodeHash(channelId))}?fork=${encodeURIComponent(fork)}&page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}`;
 
 const TRANSACTIONS_STREAM_WITH_FORK = (fork) =>
     `${joinUrl(API_PREFIX, 'transactions/stream')}?fork=${encodeURIComponent(fork)}`;
@@ -31,6 +33,7 @@ export const API = {
     HEALTH_ENDPOINT,
     FORK_CHOICE,
     CHANNELS_LIST,
+    CHANNEL_DETAIL_BY_ID,
     TRANSACTION_DETAIL_BY_HASH,
     TRANSACTIONS_STREAM,
     TRANSACTIONS_STREAM_WITH_FORK,
@@ -42,8 +45,10 @@ export const API = {
 
 const BLOCK_DETAIL = (hash) => joinUrl(`${BASE_PATH}/blocks`, encodeHash(hash));
 const TRANSACTION_DETAIL = (hash) => joinUrl(`${BASE_PATH}/transactions`, encodeHash(hash));
+const CHANNEL_DETAIL = (channelId) => joinUrl(`${BASE_PATH}/channel`, encodeHash(channelId));
 
 export const PAGE = {
     BLOCK_DETAIL,
     TRANSACTION_DETAIL,
+    CHANNEL_DETAIL,
 };

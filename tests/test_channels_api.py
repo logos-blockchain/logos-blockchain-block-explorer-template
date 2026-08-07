@@ -1,8 +1,10 @@
 """Tests for the channels activity aggregation behind /api/v1/channels/list."""
 
+from asyncio import run
+from json import loads
 from types import SimpleNamespace
 
-from api.v1.channels import aggregate_channels
+from api.v1.channels import aggregate_channels, collect_channel_operations, get_channel
 
 
 def make_tx(tx_hash: bytes, height: int, contents: list) -> SimpleNamespace:
@@ -74,3 +76,47 @@ def test_channel_field_fallback_for_config_ops():
     channels = aggregate_channels([make_tx(b"\x01" * 32, height=1, contents=[config])], limit=8, ops_limit=25)
 
     assert channels[0]["channel_id"] == CH_A.hex()
+
+
+def test_collect_channel_operations_indexes_oldest_first():
+    # Oldest-first input, as produced by get_latest(ascending=True).
+    transactions = [
+        make_tx(b"\x01" * 32, height=1, contents=[inscribe(CH_A), inscribe(CH_B)]),
+        make_tx(b"\x02" * 32, height=2, contents=[transfer(), inscribe(CH_A)]),
+        make_tx(b"\x03" * 32, height=3, contents=[inscribe(CH_A)]),
+    ]
+
+    operations = collect_channel_operations(transactions, CH_A.hex())
+
+    assert [op["index"] for op in operations] == [0, 1, 2]
+    assert [op["height"] for op in operations] == [1, 2, 3]
+    # Other channels and non-channel ops are excluded.
+    assert all(op["content"]["channel_id"] == CH_A.hex() for op in operations)
+
+
+def test_collect_channel_operations_matches_case_insensitively():
+    transactions = [make_tx(b"\x01" * 32, height=1, contents=[inscribe(CH_A)])]
+
+    assert len(collect_channel_operations(transactions, CH_A.hex().upper())) == 1
+    assert collect_channel_operations(transactions, CH_B.hex()) == []
+
+
+def test_get_channel_paginates():
+    transactions = [make_tx(bytes([i]) * 32, height=i, contents=[inscribe(CH_A)]) for i in range(1, 6)]
+
+    class FakeRepository:
+        async def get_latest(self, limit, *, fork, ascending, preload_relationships):
+            assert ascending
+            return transactions
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(transaction_repository=FakeRepository()))
+    )
+
+    response = run(get_channel(request, CH_A.hex(), fork=0, page=1, page_size=2))
+    payload = loads(response.body)
+
+    assert payload["op_count"] == 5
+    assert payload["page"] == 1
+    assert [op["index"] for op in payload["operations"]] == [2, 3]
+    assert [op["height"] for op in payload["operations"]] == [3, 4]

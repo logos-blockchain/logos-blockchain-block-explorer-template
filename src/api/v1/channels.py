@@ -66,6 +66,62 @@ def aggregate_channels(transactions_newest_first, limit: int, ops_limit: int) ->
     return sorted(channels.values(), key=lambda ch: (-ch["op_count"], -ch["last_height"]))[:limit]
 
 
+def collect_channel_operations(transactions_oldest_first, channel_id: str) -> list[dict]:
+    """All operations for one channel, oldest-first, with a stable `index` per op.
+
+    Indices are relative to the scanned window (see SCAN_TRANSACTION_LIMIT), so
+    index 0 is the oldest operation the explorer still has in view.
+    """
+    wanted = channel_id.lower()
+    operations: list[dict] = []
+    for tx in transactions_oldest_first:
+        for operation in tx.operations:
+            content = operation.content
+            if content.type not in CHANNEL_CONTENT_TYPES:
+                continue
+            found = _channel_id_of(content)
+            if found is None or found.lower() != wanted:
+                continue
+            operations.append(
+                {
+                    "index": len(operations),
+                    "transaction_hash": tx.hash.hex(),
+                    "block_hash": tx.block.hash.hex(),
+                    "height": tx.block.height,
+                    "slot": tx.block.slot,
+                    "content": content.model_dump(mode="json"),
+                }
+            )
+    return operations
+
+
+async def get_channel(
+    request: NBERequest,
+    channel_id: str,
+    fork: int = Query(...),
+    page: int = Query(0, ge=0),
+    page_size: int = Query(25, ge=1, le=100, alias="page-size"),
+) -> Response:
+    """One channel's operations, oldest-first, paginated."""
+    transactions = await request.app.state.transaction_repository.get_latest(
+        SCAN_TRANSACTION_LIMIT, fork=fork, ascending=True, preload_relationships=True
+    )
+
+    operations = collect_channel_operations(transactions, channel_id)
+    start = page * page_size
+
+    return JSONResponse(
+        {
+            "channel_id": channel_id,
+            "op_count": len(operations),
+            "page": page,
+            "page_size": page_size,
+            "operations": operations[start : start + page_size],
+            "scanned_transactions": len(transactions),
+        }
+    )
+
+
 async def list_channels(
     request: NBERequest,
     fork: int = Query(...),

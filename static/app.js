@@ -6,6 +6,7 @@ import HealthPill from './components/HealthPill.js';
 import HomePage from './pages/Home.js';
 import BlockDetailPage from './pages/BlockDetail.js';
 import TransactionDetailPage from './pages/TransactionDetail.js';
+import ChannelDetailPage from './pages/ChannelDetail.js';
 
 const ROOT = document.getElementById('app');
 
@@ -48,6 +49,11 @@ const ROUTES = [
         name: 'transactionDetail',
         re: /^\/transactions\/([^/]+)$/,
         view: ({ parameters }) => h(AppShell, null, h(TransactionDetailPage, { parameters })),
+    },
+    {
+        name: 'channelDetail',
+        re: /^\/channels?\/([^/]+)$/,
+        view: ({ parameters }) => h(AppShell, null, h(ChannelDetailPage, { parameters })),
     },
 ];
 
