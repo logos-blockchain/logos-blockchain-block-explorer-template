@@ -404,3 +404,120 @@ tr.ph td {
     overflow-wrap: anywhere;
     word-break: break-word;
 }
+
+/* ---------- Channel detail page ---------- */
+
+.channel-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.channel-detail-head .pill {
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 12px;
+    max-width: 100%;
+}
+
+.channel-detail-scan-note {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.channel-jump {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 14px 0 4px;
+    flex-wrap: wrap;
+}
+
+.channel-jump label {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.channel-jump input {
+    width: 90px;
+    padding: 3px 8px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--fg);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0;
+}
+
+.channel-jump input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.channel-jump-note {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.channel-detail-ops {
+    margin-top: 10px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--accent);
+}
+
+.channel-detail-op {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.channel-detail-op:last-child {
+    border-bottom: none;
+}
+
+.channel-detail-op:nth-child(odd) {
+    background: var(--panel);
+}
+
+.channel-detail-op.is-highlighted {
+    background: var(--accent-bg);
+    border-left: 3px solid var(--accent);
+    padding-left: 11px;
+}
+
+.channel-detail-op-index {
+    text-transform: none;
+}
+
+.channel-detail-toggle {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 11px;
+}
+
+.channel-detail-fields {
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    align-items: baseline;
+    font-size: 12px;
+}
+
+.channel-detail-field-key {
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.channel-detail-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 14px 0;
+    font-size: 12px;
+    color: var(--muted);
+}
