@@ -133,6 +133,8 @@ class HttpNodeApi(NodeApi):
                     try:
                         event = json.loads(line)
                         block = BlockSerializer.model_validate(event["block"])
+                        block.lib = event.get("lib")
+                        block.tip = event.get("tip")
                     except (ValidationError, KeyError, json.JSONDecodeError) as error:
                         logger.exception(error)
                         continue

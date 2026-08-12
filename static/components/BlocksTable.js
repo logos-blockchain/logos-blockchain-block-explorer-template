@@ -21,6 +21,8 @@ const normalize = (raw) => {
         hash: raw.hash ?? header?.hash ?? '',
         parent: raw.parent_block_hash ?? header?.parent_block ?? raw.parent_block ?? '',
         root: raw.block_root ?? header?.block_root ?? '',
+        lib: raw.lib ?? '',
+        tip: raw.tip ?? '',
         transactionCount: txLen,
     };
 };
@@ -179,6 +181,10 @@ export default function BlocksTable({ live, onDisableLive }) {
             h('td', null, h('span', { class: 'mono', title: b.root }, shortenHex(b.root))),
             // Transactions
             h('td', null, h('span', { class: 'mono' }, String(b.transactionCount))),
+            // LIB
+            h('td', null, h('span', { class: 'mono', title: b.lib }, b.lib ? shortenHex(b.lib) : '—')),
+            // Tip
+            h('td', null, h('span', { class: 'mono', title: b.tip }, b.tip ? shortenHex(b.tip) : '—')),
         );
     };
 
@@ -186,6 +192,8 @@ export default function BlocksTable({ live, onDisableLive }) {
         return h(
             'tr',
             { key: `ph-${idx}`, class: 'ph' },
+            h('td', null, '\u00A0'),
+            h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
@@ -232,6 +240,8 @@ export default function BlocksTable({ live, onDisableLive }) {
                     h('col', { style: 'width:200px' }), // Parent
                     h('col', { style: 'width:200px' }), // Block Root
                     h('col', { style: 'width:100px' }), // Transactions
+                    h('col', { style: 'width:160px' }), // LIB
+                    h('col', { style: 'width:160px' }), // Tip
                 ),
                 h(
                     'thead',
@@ -245,6 +255,8 @@ export default function BlocksTable({ live, onDisableLive }) {
                         h('th', null, 'Parent'),
                         h('th', null, 'Block Root'),
                         h('th', null, 'Transactions'),
+                        h('th', null, 'LIB'),
+                        h('th', null, 'Tip'),
                     ),
                 ),
                 h('tbody', null, ...rows),

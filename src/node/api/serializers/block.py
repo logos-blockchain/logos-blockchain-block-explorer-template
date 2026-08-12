@@ -1,7 +1,7 @@
 import logging
 from os import getenv
 from random import randint
-from typing import List, Self
+from typing import List, Optional, Self
 
 from rusty_results import Empty, Option
 
@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 class BlockSerializer(NbeSerializer, FromRandom):
     header: HeaderSerializer
     transactions: List[SignedTransactionSerializer]
+    lib: Optional[str] = None
+    tip: Optional[str] = None
 
     @classmethod
     def model_validate_json(cls, *args, **kwargs) -> Self:
@@ -46,6 +48,8 @@ class BlockSerializer(NbeSerializer, FromRandom):
                 "slot": self.header.slot,
                 "block_root": self.header.block_root,
                 "proof_of_leadership": self.header.proof_of_leadership.into_proof_of_leadership(),
+                "lib": bytes.fromhex(self.lib) if self.lib else None,
+                "tip": bytes.fromhex(self.tip) if self.tip else None,
             }
         ).with_transactions(transactions)
 
