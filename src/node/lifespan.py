@@ -110,6 +110,10 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
         await backfill_missing_uncles(app, uncle_hashes)
 
 
+# Uncle availability probes are independent reads, so they run concurrently.
+UNCLE_FETCH_CONCURRENCY = 16
+
+
 async def backfill_missing_uncles(app: "NBE", uncle_hashes: List[bytes]) -> None:
     """Fetch and store referenced uncle blocks the explorer does not have.
 
@@ -122,21 +126,26 @@ async def backfill_missing_uncles(app: "NBE", uncle_hashes: List[bytes]) -> None
     moves the canonical tip.
     """
     repository = app.state.block_repository
-    for uncle_hash in uncle_hashes:
-        if await repository.get_by_hash(uncle_hash) is not None:
-            continue
-        block_serializer = await app.state.node_api.get_block_by_hash(uncle_hash.hex())
-        if block_serializer is None:
-            logger.debug(f"Uncle {uncle_hash.hex()[:16]}... is not available on the node; skipping")
-            continue
-        block = block_serializer.into_block()
-        if await repository.get_by_hash(block.parent_block) is None:
-            await backfill_chain_from_hash(app, block.parent_block.hex())
-        nested_uncles = [uncle.hash for uncle in block.uncles]
-        block_slot = block.slot
-        await repository.create([block])
-        logger.debug(f"Stored uncle block at slot {block_slot}")
-        await backfill_missing_uncles(app, nested_uncles)
+    missing = [h for h in dict.fromkeys(uncle_hashes) if await repository.get_by_hash(h) is None]
+
+    for start in range(0, len(missing), UNCLE_FETCH_CONCURRENCY):
+        chunk = missing[start : start + UNCLE_FETCH_CONCURRENCY]
+        fetched = await asyncio.gather(*(app.state.node_api.get_block_by_hash(h.hex()) for h in chunk))
+        # Inserts stay sequential: SQLite has a single writer and uncles may chain.
+        for uncle_hash, block_serializer in zip(chunk, fetched):
+            if block_serializer is None:
+                logger.debug(f"Uncle {uncle_hash.hex()[:16]}... is not available on the node; skipping")
+                continue
+            if await repository.get_by_hash(uncle_hash) is not None:
+                continue  # stored meanwhile as an ancestor of another uncle
+            block = block_serializer.into_block()
+            if await repository.get_by_hash(block.parent_block) is None:
+                await backfill_chain_from_hash(app, block.parent_block.hex())
+            nested_uncles = [uncle.hash for uncle in block.uncles]
+            block_slot = block.slot
+            await repository.create([block])
+            logger.debug(f"Stored uncle block at slot {block_slot}")
+            await backfill_missing_uncles(app, nested_uncles)
 
 
 @asynccontextmanager
