@@ -6,6 +6,7 @@ from itertools import batched
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, List
 
 from db.blocks import BlockRepository
+from db.channels import ChannelOperationRepository
 from db.clients import SqliteClient
 from db.transaction import TransactionRepository
 from models.block import Block
@@ -99,11 +100,17 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
     app.state.db_client = db_client
     app.state.block_repository = BlockRepository(db_client)
     app.state.transaction_repository = TransactionRepository(db_client)
+    app.state.channel_repository = ChannelOperationRepository(db_client)
 
     try:
         logger.info("Starting node...")
         await app.state.node_manager.start()
         logger.info("Node started.")
+
+        # Index channel ops for transactions stored before the channel index existed
+        indexed = await app.state.channel_repository.backfill()
+        if indexed:
+            logger.info(f"Indexed {indexed} channel operations from existing transactions.")
 
         # Backfill to LIB on startup
         await backfill_to_lib(app)

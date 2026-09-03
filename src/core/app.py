@@ -9,6 +9,7 @@ from starlette.datastructures import State
 from constants import DIR_REPO
 from core.authentication import Authentication
 from db.blocks import BlockRepository
+from db.channels import ChannelOperationRepository
 from db.clients import DbClient
 from db.transaction import TransactionRepository
 from node.api.base import NodeApi
@@ -52,6 +53,7 @@ class NBEState(State):
     db_client: DbClient
     block_repository: BlockRepository
     transaction_repository: TransactionRepository
+    channel_repository: ChannelOperationRepository
     subscription_to_updates_handle: Task
 
     @property

@@ -248,12 +248,12 @@ export default function ChannelDetail({ parameters }) {
                 h(
                     'div',
                     { class: 'channel-detail-scan-note' },
-                    `Operations are indexed oldest-first within the last ${data.scanned_transactions} scanned transactions.`,
+                    'Operations are indexed oldest-first across the channel’s full history on this fork.',
                 ),
                 h(JumpToOp, { opCount, onJump: jumpTo }),
 
                 opCount === 0 &&
-                    h('div', { class: 'channels-empty' }, 'No operations found for this channel in the scan window.'),
+                    h('div', { class: 'channels-empty' }, 'No operations found for this channel on this fork.'),
 
                 opCount > 0 &&
                     h(

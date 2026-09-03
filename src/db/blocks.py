@@ -9,6 +9,7 @@ from sqlmodel import select
 
 from db.clients import DbClient
 from models.block import Block
+from models.channel_operation import channel_operations_for_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,10 @@ class BlockRepository:
 
             if blocks_to_add:
                 session.add_all(blocks_to_add)
+                # Flush so blocks/transactions get ids, then index channel ops in
+                # the same commit so the index can never drift from the chain.
+                session.flush()
+                session.add_all(channel_operations_for_blocks(blocks_to_add))
                 session.commit()
 
     async def get_by_id(self, block_id: int) -> Option[Block]:
