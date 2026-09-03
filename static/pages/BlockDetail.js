@@ -6,6 +6,78 @@ import { shortenHex } from '../lib/utils.js';
 import { transferOutputs } from '../lib/format.js';
 import { CopyPill, OpPills } from '../components/Common.js';
 
+function UnclesCard({ uncles }) {
+    return h(
+        'div',
+        { class: 'card', style: 'margin-top:16px;' },
+        h(
+            'div',
+            { class: 'card-header' },
+            h('strong', null, 'Uncles '),
+            h('span', { class: 'pill' }, String(uncles.length)),
+            h(
+                'span',
+                { style: 'margin-left:8px; color:var(--muted); font-size:12px;' },
+                'competing blocks referenced by this block',
+            ),
+        ),
+        h(
+            'div',
+            { class: 'table-wrapper' },
+            h(
+                'table',
+                { class: 'table--blocks' },
+                h(
+                    'thead',
+                    null,
+                    h(
+                        'tr',
+                        null,
+                        h('th', null, 'Hash'),
+                        h('th', null, 'Slot'),
+                        h('th', null, 'Parent'),
+                        h('th', null, 'Leader key'),
+                    ),
+                ),
+                h(
+                    'tbody',
+                    null,
+                    ...uncles.map((u) =>
+                        h(
+                            'tr',
+                            { key: u.hash },
+                            h(
+                                'td',
+                                null,
+                                h(
+                                    'a',
+                                    { class: 'linkish mono', href: PAGE.BLOCK_DETAIL(u.hash), title: u.hash },
+                                    shortenHex(u.hash),
+                                ),
+                            ),
+                            h('td', null, h('span', { class: 'mono' }, String(u.slot))),
+                            h(
+                                'td',
+                                null,
+                                h(
+                                    'a',
+                                    {
+                                        class: 'linkish mono',
+                                        href: PAGE.BLOCK_DETAIL(u.parent_block),
+                                        title: u.parent_block,
+                                    },
+                                    shortenHex(u.parent_block),
+                                ),
+                            ),
+                            h('td', null, h('span', { class: 'mono', title: u.leader_key }, shortenHex(u.leader_key))),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    );
+}
+
 export default function BlockDetailPage({ parameters }) {
     const blockHash = parameters[0];
     const isValidHash = typeof blockHash === 'string' && blockHash.length > 0;
@@ -63,6 +135,7 @@ export default function BlockDetailPage({ parameters }) {
     }, [blockHash, isValidHash]);
 
     const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
+    const uncles = Array.isArray(block?.uncles) ? block.uncles : [];
     const height = block?.height ?? null;
     const slot = block?.slot ?? null;
     const blockRoot = block?.block_root ?? '';
@@ -118,6 +191,8 @@ export default function BlockDetailPage({ parameters }) {
                             { style: 'margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;' },
                             height != null && h('span', { class: 'pill', title: 'Height' }, `Height ${String(height)}`),
                             slot != null && h('span', { class: 'pill', title: 'Slot' }, `Slot ${String(slot)}`),
+                            block?.canonical === false &&
+                                h('span', { class: 'pill', title: 'Not on the canonical chain' }, 'Orphaned'),
                         ),
                     ),
                     h(
@@ -187,6 +262,9 @@ export default function BlockDetailPage({ parameters }) {
                         ),
                     ),
                 ),
+
+                // Uncles card: competing blocks this block references
+                uncles.length > 0 && h(UnclesCard, { uncles }),
 
                 // Transactions card
                 h(

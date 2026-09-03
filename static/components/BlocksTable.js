@@ -13,6 +13,7 @@ const normalize = (raw) => ({
     parent: raw.parent_block_hash ?? '',
     root: raw.block_root ?? '',
     transactionCount: Number(raw.transaction_count ?? 0),
+    uncleCount: Number(raw.uncle_count ?? 0),
 });
 
 export default function BlocksTable({ live, onDisableLive }) {
@@ -148,6 +149,8 @@ export default function BlocksTable({ live, onDisableLive }) {
             h('td', null, h('span', { class: 'mono', title: b.root }, shortenHex(b.root))),
             // Transactions
             h('td', null, h('span', { class: 'mono' }, String(b.transactionCount))),
+            // Uncles
+            h('td', null, h('span', { class: 'mono' }, String(b.uncleCount))),
         );
     };
 
@@ -155,6 +158,7 @@ export default function BlocksTable({ live, onDisableLive }) {
         return h(
             'tr',
             { key: `ph-${idx}`, class: 'ph' },
+            h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
@@ -201,6 +205,7 @@ export default function BlocksTable({ live, onDisableLive }) {
                     h('col', { style: 'width:200px' }), // Parent
                     h('col', { style: 'width:200px' }), // Block Root
                     h('col', { style: 'width:100px' }), // Transactions
+                    h('col', { style: 'width:70px' }), // Uncles
                 ),
                 h(
                     'thead',
@@ -214,6 +219,7 @@ export default function BlocksTable({ live, onDisableLive }) {
                         h('th', null, 'Parent'),
                         h('th', null, 'Block Root'),
                         h('th', null, 'Transactions'),
+                        h('th', null, 'Uncles'),
                     ),
                 ),
                 h('tbody', null, ...rows),

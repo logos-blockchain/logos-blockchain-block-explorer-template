@@ -4,6 +4,7 @@ from core.models import NbeSchema
 from core.types import HexBytes
 from models.block import Block
 from models.header.proof_of_leadership import ProofOfLeadership
+from models.header.uncle import UncleHeader
 from models.transactions.transaction import Transaction
 
 
@@ -17,6 +18,7 @@ class BlockSummary(NbeSchema):
     height: int
     block_root: HexBytes
     transaction_count: int
+    uncle_count: int
 
     @classmethod
     def from_block(cls, block: Block) -> Self:
@@ -28,6 +30,7 @@ class BlockSummary(NbeSchema):
             height=block.height,
             block_root=block.block_root,
             transaction_count=len(block.transactions),
+            uncle_count=len(block.uncles),
         )
 
 
@@ -40,6 +43,7 @@ class BlockRead(NbeSchema):
     canonical: bool
     block_root: HexBytes
     proof_of_leadership: ProofOfLeadership
+    uncles: List[UncleHeader]
     transactions: List[Transaction]
 
     @classmethod
@@ -53,5 +57,6 @@ class BlockRead(NbeSchema):
             canonical=block.canonical,
             block_root=block.block_root,
             proof_of_leadership=block.proof_of_leadership,
+            uncles=block.uncles,
             transactions=block.transactions,
         )
