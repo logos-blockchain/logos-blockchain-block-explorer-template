@@ -214,13 +214,6 @@ class BlockRepository:
                 session.add_all(channel_operations_for_blocks(blocks_to_add))
                 session.commit()
 
-    async def get_by_id(self, block_id: int) -> Optional[Block]:
-        statement = select(Block).where(Block.id == block_id)
-
-        with self.client.session() as session:
-            result: Result[Block] = session.exec(statement)
-            return result.one_or_none()
-
     async def get_by_hash(self, block_hash: bytes) -> Optional[Block]:
         statement = select(Block).where(Block.hash == block_hash)
 
@@ -244,13 +237,6 @@ class BlockRepository:
         statement = select(Block.fork).order_by(Block.height.desc()).limit(1)
         with self.client.session() as session:
             return session.exec(statement).one_or_none()
-
-    async def get_earliest(self) -> Optional[Block]:
-        statement = select(Block).order_by(Block.height.asc()).limit(1)
-
-        with self.client.session() as session:
-            results: Result[Block] = session.exec(statement)
-            return results.one_or_none()
 
     async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Block], int]:
         """

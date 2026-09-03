@@ -4,7 +4,7 @@ from typing import List, Optional
 from sqlalchemy import Column
 from sqlmodel import Field, Relationship
 
-from core.models import TimestampedModel
+from core.models import IdNbeModel
 from core.sqlmodel import PydanticJsonColumn
 from core.types import HexBytes
 from models.aliases import Gas
@@ -14,7 +14,7 @@ from models.transactions.operations.operation import Operation
 logger = logging.getLogger(__name__)
 
 
-class Transaction(TimestampedModel, table=True):
+class Transaction(IdNbeModel, table=True):
     __tablename__ = "transaction"
 
     # --- Columns --- #
@@ -38,4 +38,4 @@ class Transaction(TimestampedModel, table=True):
         return f"Transaction({self.operations})"
 
     def __repr__(self) -> str:
-        return f"<Transaction(id={self.id}, created_at={self.created_at}, operations={self.operations})>"
+        return f"<Transaction(id={self.id}, hash={self.hash.hex()[:16]}..., operations={len(self.operations)})>"

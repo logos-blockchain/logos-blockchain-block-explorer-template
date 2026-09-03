@@ -8,22 +8,6 @@ from core.types import HexBytes
 from models.transactions.notes import Note
 
 
-class ContentType(Enum):
-    LEDGER_TRANSFER = "LedgerTransfer"
-    CHANNEL_INSCRIBE = "ChannelInscribe"
-    CHANNEL_BLOB = "ChannelBlob"
-    CHANNEL_SET_KEYS = "ChannelSetKeys"
-    CHANNEL_CONFIG = "ChannelConfig"
-    CHANNEL_DEPOSIT = "ChannelDeposit"
-    CHANNEL_WITHDRAW = "ChannelWithdraw"
-    CHANNEL_TRANSFER = "ChannelTransfer"
-    SDP_DECLARE = "SDPDeclare"
-    SDP_WITHDRAW = "SDPWithdraw"
-    SDP_ACTIVE = "SDPActive"
-    LEADER_CLAIM = "LeaderClaim"
-    CLAIM_POW_REWARD = "ClaimPowReward"
-
-
 class NbeContent(NbeSchema):
     type: str
 
@@ -40,26 +24,6 @@ class ChannelInscribe(NbeContent):
     inscription: HexBytes
     parent: HexBytes
     signer: HexBytes
-
-
-class ChannelBlob(NbeContent):
-    type: Literal["ChannelBlob"] = "ChannelBlob"
-    channel: HexBytes
-    blob: HexBytes
-    blob_size: int
-    da_storage_gas_price: int
-    parent: HexBytes
-    signer: HexBytes
-
-
-class ChannelSetKeys(NbeContent):
-    """Legacy pre-0.2.x op kept so old DB rows still deserialize."""
-
-    type: Literal["ChannelSetKeys"] = "ChannelSetKeys"
-    channel: HexBytes
-    # HexBytes (not plain bytes): content is stored as JSON in the DB, and raw
-    # bytes break its utf-8 encoding for arbitrary key material.
-    keys: List[HexBytes]
 
 
 class ChannelConfig(NbeContent):
@@ -154,8 +118,6 @@ class UnknownOp(NbeContent):
 OperationContent = (
     LedgerTransfer
     | ChannelInscribe
-    | ChannelBlob
-    | ChannelSetKeys
     | ChannelConfig
     | ChannelDeposit
     | ChannelWithdraw

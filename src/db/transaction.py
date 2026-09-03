@@ -10,42 +10,24 @@ from models.block import Block
 from models.transactions.transaction import Transaction
 
 
-def get_latest_statement(limit: int, *, fork: int, output_ascending: bool, preload_relationships: bool) -> Select:
+def get_latest_statement(limit: int, *, fork: int) -> Select:
+    """The newest `limit` transactions on the fork's chain, returned oldest-first with their block loaded."""
     chain = chain_block_ids_cte(fork=fork)
-    base = (
+    newest = (
         select(Transaction, Block.height.label("block__height"))
         .join(Block, Transaction.block_id == Block.id)
         .join(chain, Block.id == chain.c.id)
         .order_by(Block.height.desc(), Transaction.id.desc())
         .limit(limit)
+        .subquery()
     )
-    if not output_ascending:
-        return base
-
-    # Reorder for output
-    inner = base.subquery()
-    latest = aliased(Transaction, inner)
-    statement = select(latest).order_by(inner.c.block__height.asc(), latest.id.asc())
-    if preload_relationships:
-        statement = statement.options(selectinload(latest.block))
-    return statement
+    latest = aliased(Transaction, newest)
+    return select(latest).options(selectinload(latest.block)).order_by(newest.c.block__height.asc(), latest.id.asc())
 
 
 class TransactionRepository:
     def __init__(self, client: DbClient):
         self.client = client
-
-    async def create(self, *transaction: Transaction) -> None:
-        with self.client.session() as session:
-            session.add_all(list(transaction))
-            session.commit()
-
-    async def get_by_id(self, transaction_id: int) -> Optional[Transaction]:
-        statement = select(Transaction).where(Transaction.id == transaction_id)
-
-        with self.client.session() as session:
-            result: Result[Transaction] = session.exec(statement)
-            return result.one_or_none()
 
     async def get_by_hash(self, transaction_hash: bytes, *, fork: int) -> Optional[Transaction]:
         chain = chain_block_ids_cte(fork=fork)
@@ -60,18 +42,12 @@ class TransactionRepository:
             result: Result[Transaction] = session.exec(statement)
             return result.first()
 
-    async def get_latest(
-        self, limit: int, *, fork: int, ascending: bool = False, preload_relationships: bool = False
-    ) -> List[Transaction]:
+    async def get_latest(self, limit: int, *, fork: int) -> List[Transaction]:
         if limit == 0:
             return []
 
-        statement = get_latest_statement(
-            limit, fork=fork, output_ascending=ascending, preload_relationships=preload_relationships
-        )
-
         with self.client.session() as session:
-            results: Result[Transaction] = session.exec(statement)
+            results: Result[Transaction] = session.exec(get_latest_statement(limit, fork=fork))
             return results.all()
 
     async def search_by_note_id(self, note_id: bytes, *, fork: int, limit: int) -> List[Transaction]:

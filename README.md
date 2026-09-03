@@ -15,9 +15,7 @@ This is a Proof of Concept (PoC) for a block explorer for the Nomos blockchain.
   - API
     - REST API to query Blocks and Transactions.
     - SSE API to stream live Blocks (and its transactions).
-  - Node Management
-    - Pluggable API (e.g. `fake`, `http`) to query nodes.
-    - Pluggable Manager (e.g. `noop`, `docker`) to manage local nodes.
+  - Node integration over the node's HTTP API, with a chain-walking backfill.
   - Simple backfilling mechanism to populate historical blocks.
 
 ## Architecture
@@ -47,9 +45,7 @@ B <--> D["Database<br/>(SQLite)"]
 - **Core** (`/src/core`): Application setup, configuration, base types and mixins
 - **Database Layer** (`/src/db`): Repository pattern for data access
 - **Models** (`/src/models`): Domain models (Block, Transaction, Header, etc.)
-- **Node Integration** (`/src/node`):
-  - **API**: Pluggable adapters to communicate with Nomos nodes (`fake`, `http`) and serializers
-  - **Manager**: Pluggable node lifecycle management (`noop`, `docker`)
+- **Node Integration** (`/src/node`): HTTP client for the node API, wire-format serializers, ingestion lifespan
 
 #### 3. Data Flow
 
@@ -61,7 +57,6 @@ B <--> D["Database<br/>(SQLite)"]
 #### 4. Key Design Patterns
 
 - **Repository Pattern**: Abstraction layer for database operations (`BlockRepository`, `TransactionRepository`)
-- **Strategy Pattern**: Pluggable Node API implementations (fake for testing, HTTP for production)
 - **Adapter Pattern**: Serializers convert between Node API formats and internal domain models
 - **Observer Pattern**: SSE streams for pushing real-time updates to clients
 
@@ -70,10 +65,6 @@ B <--> D["Database<br/>(SQLite)"]
 
 - Python 3.14
 - UV Package Manager
-
-### Optional
-
-- Docker: To run a local node.
 
 ## How to run
 
@@ -84,22 +75,14 @@ B <--> D["Database<br/>(SQLite)"]
 
 2. Run the block explorer:
    ```bash
-   PYTHONPATH=src uv run python -m main
+   uv run python src/main.py
    ```
-By default, this will try to connect to a local Node running on port 18080.
+By default, this will try to connect to a local Node API on `127.0.0.1:8080`.
 
 - You can optionally run it via Docker with:
     ```bash
     docker build -t nomos-block-explorer . && docker run -p 8000:8000 nomos-block-explorer
     ```
-
-- If you want to run the Explorer without a Node, make sure to set the `NBE_NODE_API` environment variable to `fake`:
-    1. ```bash
-       PYTHONPATH=src NBE_NODE_API=fake uv run python -m main
-       ```
-    2. ```bash
-       docker run -e NBE_NODE_API=fake -p 8000:8000 nomos-block-explorer
-       ```
 
 ### Configuration
 
@@ -107,16 +90,11 @@ The block explorer is configured through environment variables. The following va
 ```dotenv
 NBE_LOG_LEVEL=DEBUG  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-NBE_DEBUG=true  # Randomizes transactions in BlockSerializer
-
-NBE_NODE_MANAGER=noop  # noop, docker
-NBE_NODE_COMPOSE_FILEPATH=/path/to/docker-compose.yml  # Only used if NODE_MANAGER=docker
-
-NBE_NODE_API=http  # fake, http
-NBE_NODE_API_HOST=localhost  # Only used if NODE_API=http
-NBE_NODE_API_PORT=18080  # Only used if NODE_API=http
-NBE_NODE_API_TIMEOUT=60  # Only used if NODE_API=http
-NBE_NODE_API_PROTOCOL=http  # Only used if NODE_API=http
+NBE_NODE_API_HOST=127.0.0.1  # Host, host/path, or a full URL such as https://example.org/node/1
+NBE_NODE_API_PORT=8080  # Ignored when NBE_NODE_API_HOST is a full URL
+NBE_NODE_API_PROTOCOL=http  # Ignored when NBE_NODE_API_HOST is a full URL
+NBE_NODE_API_TIMEOUT=60
+NBE_NODE_API_AUTH="Basic <base64 user:pass>"  # Optional
 
 NBE_HOST=0.0.0.0  # Block Explorer's listening host
 NBE_PORT=8000  # Block Explorer's listening port

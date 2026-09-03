@@ -11,11 +11,14 @@ Stream = AsyncIterator[Data]
 logger = logging.getLogger(__name__)
 
 
+def _ndjson_line(item: T) -> bytes:
+    return f"{item.model_dump_json()}\n".encode()
+
+
 def _into_ndjson_data(data: Data) -> bytes:
     if isinstance(data, list):
-        return b"".join(item.model_dump_ndjson() for item in data)
-    else:
-        return data.model_dump_ndjson()
+        return b"".join(_ndjson_line(item) for item in data)
+    return _ndjson_line(data)
 
 
 async def into_ndjson_stream(stream: Stream, *, bootstrap_data: Data = None) -> AsyncIterable[bytes]:

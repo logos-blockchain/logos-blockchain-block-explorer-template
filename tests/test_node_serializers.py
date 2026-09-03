@@ -198,21 +198,6 @@ class TestChannelConfigOp:
         assert operation.proof.type == "ChannelMultiSig"
         assert operation.proof.signatures[0].channel_key_index == 0
 
-    def test_legacy_setkeys_payload_degrades_to_unknown(self, block):
-        """Pre-0.2.x opcode 16 payloads lack the config fields; they must not
-        break ingestion."""
-        samples = json.loads((FIXTURES / "ops_samples_testnet.json").read_text())
-        legacy = samples["16"]
-        tx = block["transactions"][0]
-        tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": legacy["payload"]}]
-        tx["ops_proofs"] = [legacy["proof"]]
-        parsed = BlockSerializer.model_validate(block)
-        op = parsed.transactions[0].transaction.ops[0]
-        assert isinstance(op, UnknownOpSerializer)
-        content = parsed.transactions[0].into_transaction().operations[0].content
-        assert content.type == "UnknownOp"
-        assert content.opcode == 16
-
 
 class TestNewOps:
     """Ops introduced with the 0.2.x wire format."""

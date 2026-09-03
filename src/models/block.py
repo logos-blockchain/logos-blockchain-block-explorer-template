@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, List, Self
 from sqlalchemy import Column
 from sqlmodel import Field, Relationship
 
-from core.models import TimestampedModel
+from core.models import IdNbeModel
 from core.sqlmodel import PydanticJsonColumn
 from core.types import HexBytes
 from models.header.proof_of_leadership import ProofOfLeadership
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class Block(TimestampedModel, table=True):
+class Block(IdNbeModel, table=True):
     __tablename__ = "block"
 
     # --- Columns --- #
@@ -42,7 +42,9 @@ class Block(TimestampedModel, table=True):
         return f"Block(slot={self.slot})"
 
     def __repr__(self) -> str:
-        return f"<Block(id={self.id}, created_at={self.created_at}, slot={self.slot}, parent={self.header["parent_block"]})>"
+        return (
+            f"<Block(id={self.id}, slot={self.slot}, height={self.height}, parent={self.parent_block.hex()[:16]}...)>"
+        )
 
     def with_transactions(self, transactions: List["Transaction"]) -> Self:
         self.transactions = transactions

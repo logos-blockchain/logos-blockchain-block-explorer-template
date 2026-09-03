@@ -28,7 +28,7 @@ async def stream(
     fork: int = Query(...),
 ) -> Response:
     latest_transactions: List[Transaction] = await request.app.state.transaction_repository.get_latest(
-        prefetch_limit, fork=fork, ascending=True, preload_relationships=True
+        prefetch_limit, fork=fork
     )
     latest_transaction = latest_transactions[-1] if latest_transactions else None
     bootstrap_transactions = [TransactionRead.from_transaction(transaction) for transaction in latest_transactions]
