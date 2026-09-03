@@ -9,7 +9,7 @@ import { CopyPill, OpPills } from '../components/Common.js';
 function UnclesCard({ uncles }) {
     return h(
         'div',
-        { class: 'card' },
+        { class: 'card', style: 'margin-top:16px;' },
         h(
             'div',
             { class: 'card-header' },
@@ -21,67 +21,60 @@ function UnclesCard({ uncles }) {
                 'competing blocks referenced by this block',
             ),
         ),
-        uncles.length === 0 &&
-            h('div', { style: 'padding:12px 14px; color:var(--muted);' }, 'No uncles referenced by this block.'),
-        uncles.length > 0 &&
+        h(
+            'div',
+            { class: 'table-wrapper' },
             h(
-                'div',
-                { class: 'table-wrapper' },
+                'table',
+                { class: 'table--blocks' },
                 h(
-                    'table',
-                    { class: 'table--blocks' },
+                    'thead',
+                    null,
                     h(
-                        'thead',
+                        'tr',
                         null,
+                        h('th', null, 'Hash'),
+                        h('th', null, 'Slot'),
+                        h('th', null, 'Parent'),
+                        h('th', null, 'Leader key'),
+                    ),
+                ),
+                h(
+                    'tbody',
+                    null,
+                    ...uncles.map((u) =>
                         h(
                             'tr',
-                            null,
-                            h('th', null, 'Hash'),
-                            h('th', null, 'Slot'),
-                            h('th', null, 'Parent'),
-                            h('th', null, 'Leader key'),
-                        ),
-                    ),
-                    h(
-                        'tbody',
-                        null,
-                        ...uncles.map((u) =>
+                            { key: u.hash },
                             h(
-                                'tr',
-                                { key: u.hash },
+                                'td',
+                                null,
                                 h(
-                                    'td',
-                                    null,
-                                    h(
-                                        'a',
-                                        { class: 'linkish mono', href: PAGE.BLOCK_DETAIL(u.hash), title: u.hash },
-                                        shortenHex(u.hash),
-                                    ),
-                                ),
-                                h('td', null, h('span', { class: 'mono' }, String(u.slot))),
-                                h(
-                                    'td',
-                                    null,
-                                    h(
-                                        'a',
-                                        {
-                                            class: 'linkish mono',
-                                            href: PAGE.BLOCK_DETAIL(u.parent_block),
-                                            title: u.parent_block,
-                                        },
-                                        shortenHex(u.parent_block),
-                                    ),
-                                ),
-                                h(
-                                    'td',
-                                    null,
-                                    h('span', { class: 'mono', title: u.leader_key }, shortenHex(u.leader_key)),
+                                    'a',
+                                    { class: 'linkish mono', href: PAGE.BLOCK_DETAIL(u.hash), title: u.hash },
+                                    shortenHex(u.hash),
                                 ),
                             ),
+                            h('td', null, h('span', { class: 'mono' }, String(u.slot))),
+                            h(
+                                'td',
+                                null,
+                                h(
+                                    'a',
+                                    {
+                                        class: 'linkish mono',
+                                        href: PAGE.BLOCK_DETAIL(u.parent_block),
+                                        title: u.parent_block,
+                                    },
+                                    shortenHex(u.parent_block),
+                                ),
+                            ),
+                            h('td', null, h('span', { class: 'mono', title: u.leader_key }, shortenHex(u.leader_key))),
                         ),
                     ),
                 ),
             ),
+        ),
     );
 }
 
@@ -185,102 +178,98 @@ export default function BlockDetailPage({ parameters }) {
                 Fragment,
                 null,
 
-                // Header and uncles side by side; transactions full width below
+                // Header card
                 h(
                     'div',
-                    { class: 'twocol', style: 'margin-top:12px;' },
-
-                    // Header card
+                    { class: 'card', style: 'margin-top:12px;' },
                     h(
                         'div',
-                        { class: 'card' },
+                        { class: 'card-header', style: 'display:flex; align-items:center; gap:8px;' },
+                        h('strong', null, 'Header'),
                         h(
                             'div',
-                            { class: 'card-header', style: 'display:flex; align-items:center; gap:8px;' },
-                            h('strong', null, 'Header'),
+                            { style: 'margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;' },
+                            height != null && h('span', { class: 'pill', title: 'Height' }, `Height ${String(height)}`),
+                            slot != null && h('span', { class: 'pill', title: 'Slot' }, `Slot ${String(slot)}`),
                             h(
-                                'div',
-                                { style: 'margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;' },
-                                height != null &&
-                                    h('span', { class: 'pill', title: 'Height' }, `Height ${String(height)}`),
-                                slot != null && h('span', { class: 'pill', title: 'Slot' }, `Slot ${String(slot)}`),
-                                block?.canonical === false &&
-                                    h('span', { class: 'pill', title: 'Not on the canonical chain' }, 'Orphaned'),
+                                'span',
+                                { class: 'pill', title: 'Competing blocks referenced by this block' },
+                                `${uncles.length} uncle${uncles.length === 1 ? '' : 's'}`,
                             ),
-                        ),
-                        h(
-                            'div',
-                            {
-                                style: 'padding:12px 14px; display:grid; grid-template-columns: 120px 1fr; gap:8px 12px;',
-                            },
-
-                            // Hash (pill + copy)
-                            h('div', null, h('b', null, 'Hash:')),
-                            h(
-                                'div',
-                                { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
-                                h(
-                                    'span',
-                                    {
-                                        class: 'pill mono',
-                                        title: currentBlockHash,
-                                        style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
-                                    },
-                                    String(currentBlockHash),
-                                ),
-                                h(CopyPill, { text: currentBlockHash }),
-                            ),
-
-                            // Root (pill + copy)
-                            h('div', null, h('b', null, 'Root:')),
-                            h(
-                                'div',
-                                { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
-                                h(
-                                    'span',
-                                    {
-                                        class: 'pill mono',
-                                        title: blockRoot,
-                                        style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
-                                    },
-                                    String(blockRoot),
-                                ),
-                                h(CopyPill, { text: blockRoot }),
-                            ),
-
-                            // Parent (parent hash link) + copy
-                            h('div', null, h('b', null, 'Parent:')),
-                            h(
-                                'div',
-                                { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
-                                parentHash
-                                    ? h(
-                                          'a',
-                                          {
-                                              class: 'pill mono linkish',
-                                              href: PAGE.BLOCK_DETAIL(parentHash),
-                                              title: String(parentHash),
-                                              style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
-                                          },
-                                          shortenHex(parentHash),
-                                      )
-                                    : h(
-                                          'span',
-                                          {
-                                              class: 'pill mono',
-                                              title: '—',
-                                              style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
-                                          },
-                                          '—',
-                                      ),
-                                h(CopyPill, { text: parentHash }),
-                            ),
+                            block?.canonical === false &&
+                                h('span', { class: 'pill', title: 'Not on the canonical chain' }, 'Orphaned'),
                         ),
                     ),
+                    h(
+                        'div',
+                        { style: 'padding:12px 14px; display:grid; grid-template-columns: 120px 1fr; gap:8px 12px;' },
 
-                    // Uncles card: competing blocks this block references
-                    h(UnclesCard, { uncles }),
+                        // Hash (pill + copy)
+                        h('div', null, h('b', null, 'Hash:')),
+                        h(
+                            'div',
+                            { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
+                            h(
+                                'span',
+                                {
+                                    class: 'pill mono',
+                                    title: currentBlockHash,
+                                    style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                },
+                                String(currentBlockHash),
+                            ),
+                            h(CopyPill, { text: currentBlockHash }),
+                        ),
+
+                        // Root (pill + copy)
+                        h('div', null, h('b', null, 'Root:')),
+                        h(
+                            'div',
+                            { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
+                            h(
+                                'span',
+                                {
+                                    class: 'pill mono',
+                                    title: blockRoot,
+                                    style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                },
+                                String(blockRoot),
+                            ),
+                            h(CopyPill, { text: blockRoot }),
+                        ),
+
+                        // Parent (parent hash link) + copy
+                        h('div', null, h('b', null, 'Parent:')),
+                        h(
+                            'div',
+                            { style: 'display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;' },
+                            parentHash
+                                ? h(
+                                      'a',
+                                      {
+                                          class: 'pill mono linkish',
+                                          href: PAGE.BLOCK_DETAIL(parentHash),
+                                          title: String(parentHash),
+                                          style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                      },
+                                      shortenHex(parentHash),
+                                  )
+                                : h(
+                                      'span',
+                                      {
+                                          class: 'pill mono',
+                                          title: '—',
+                                          style: 'max-width:100%; overflow-wrap:anywhere; word-break:break-word;',
+                                      },
+                                      '—',
+                                  ),
+                            h(CopyPill, { text: parentHash }),
+                        ),
+                    ),
                 ),
+
+                // Uncles card: competing blocks this block references
+                uncles.length > 0 && h(UnclesCard, { uncles }),
 
                 // Transactions card
                 h(
