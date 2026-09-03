@@ -21,60 +21,67 @@ function UnclesCard({ uncles }) {
                 'competing blocks referenced by this block',
             ),
         ),
-        h(
-            'div',
-            { class: 'table-wrapper' },
+        uncles.length === 0 &&
+            h('div', { style: 'padding:12px 14px; color:var(--muted);' }, 'No uncles referenced by this block.'),
+        uncles.length > 0 &&
             h(
-                'table',
-                { class: 'table--blocks' },
+                'div',
+                { class: 'table-wrapper' },
                 h(
-                    'thead',
-                    null,
+                    'table',
+                    { class: 'table--blocks' },
                     h(
-                        'tr',
+                        'thead',
                         null,
-                        h('th', null, 'Hash'),
-                        h('th', null, 'Slot'),
-                        h('th', null, 'Parent'),
-                        h('th', null, 'Leader key'),
-                    ),
-                ),
-                h(
-                    'tbody',
-                    null,
-                    ...uncles.map((u) =>
                         h(
                             'tr',
-                            { key: u.hash },
+                            null,
+                            h('th', null, 'Hash'),
+                            h('th', null, 'Slot'),
+                            h('th', null, 'Parent'),
+                            h('th', null, 'Leader key'),
+                        ),
+                    ),
+                    h(
+                        'tbody',
+                        null,
+                        ...uncles.map((u) =>
                             h(
-                                'td',
-                                null,
+                                'tr',
+                                { key: u.hash },
                                 h(
-                                    'a',
-                                    { class: 'linkish mono', href: PAGE.BLOCK_DETAIL(u.hash), title: u.hash },
-                                    shortenHex(u.hash),
+                                    'td',
+                                    null,
+                                    h(
+                                        'a',
+                                        { class: 'linkish mono', href: PAGE.BLOCK_DETAIL(u.hash), title: u.hash },
+                                        shortenHex(u.hash),
+                                    ),
+                                ),
+                                h('td', null, h('span', { class: 'mono' }, String(u.slot))),
+                                h(
+                                    'td',
+                                    null,
+                                    h(
+                                        'a',
+                                        {
+                                            class: 'linkish mono',
+                                            href: PAGE.BLOCK_DETAIL(u.parent_block),
+                                            title: u.parent_block,
+                                        },
+                                        shortenHex(u.parent_block),
+                                    ),
+                                ),
+                                h(
+                                    'td',
+                                    null,
+                                    h('span', { class: 'mono', title: u.leader_key }, shortenHex(u.leader_key)),
                                 ),
                             ),
-                            h('td', null, h('span', { class: 'mono' }, String(u.slot))),
-                            h(
-                                'td',
-                                null,
-                                h(
-                                    'a',
-                                    {
-                                        class: 'linkish mono',
-                                        href: PAGE.BLOCK_DETAIL(u.parent_block),
-                                        title: u.parent_block,
-                                    },
-                                    shortenHex(u.parent_block),
-                                ),
-                            ),
-                            h('td', null, h('span', { class: 'mono', title: u.leader_key }, shortenHex(u.leader_key))),
                         ),
                     ),
                 ),
             ),
-        ),
     );
 }
 
@@ -191,11 +198,6 @@ export default function BlockDetailPage({ parameters }) {
                             { style: 'margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;' },
                             height != null && h('span', { class: 'pill', title: 'Height' }, `Height ${String(height)}`),
                             slot != null && h('span', { class: 'pill', title: 'Slot' }, `Slot ${String(slot)}`),
-                            h(
-                                'span',
-                                { class: 'pill', title: 'Competing blocks referenced by this block' },
-                                `${uncles.length} uncle${uncles.length === 1 ? '' : 's'}`,
-                            ),
                             block?.canonical === false &&
                                 h('span', { class: 'pill', title: 'Not on the canonical chain' }, 'Orphaned'),
                         ),
@@ -269,7 +271,7 @@ export default function BlockDetailPage({ parameters }) {
                 ),
 
                 // Uncles card: competing blocks this block references
-                uncles.length > 0 && h(UnclesCard, { uncles }),
+                h(UnclesCard, { uncles }),
 
                 // Transactions card
                 h(
