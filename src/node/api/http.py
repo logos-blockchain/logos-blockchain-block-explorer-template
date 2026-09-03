@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 from urllib.parse import urljoin, urlunparse
 
@@ -32,6 +33,20 @@ def normalize_info_payload(data: dict) -> dict:
         mode = next(iter(mode.values()), "Unknown") if mode else "Unknown"
     info["mode"] = mode if isinstance(mode, str) else str(mode)
     return info
+
+
+@dataclass(frozen=True)
+class BlockEvent:
+    """One entry of the node's block stream: a processed block plus the chain state after it.
+
+    `tip` is the node's canonical tip after processing the block, which is not
+    necessarily the block itself (it may be an uncle, or a replay of the current
+    state on connect). The explorer follows `tip`, never its own fork choice.
+    """
+
+    block: BlockSerializer
+    tip: bytes
+    lib_slot: int
 
 
 class HttpNodeApi:
@@ -100,7 +115,7 @@ class HttpNodeApi:
             return None
         return BlockSerializer.model_validate(json_data)
 
-    async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
+    async def get_blocks_stream(self) -> AsyncIterator[BlockEvent]:
         # No read timeout for streaming: blocks may arrive infrequently.
         stream_timeout = httpx.Timeout(connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
         async with httpx.AsyncClient(timeout=stream_timeout, auth=self.auth) as client:
@@ -113,9 +128,11 @@ class HttpNodeApi:
                     try:
                         event = json.loads(line)
                         block = BlockSerializer.model_validate(event["block"])
-                    except (ValidationError, KeyError, json.JSONDecodeError) as error:
+                        tip = bytes.fromhex(event["tip"])
+                        lib_slot = int(event["lib_slot"])
+                    except (ValidationError, KeyError, ValueError, json.JSONDecodeError) as error:
                         logger.exception(error)
                         continue
 
                     logger.debug(f"Received new block from Node: {block}")
-                    yield block
+                    yield BlockEvent(block=block, tip=tip, lib_slot=lib_slot)

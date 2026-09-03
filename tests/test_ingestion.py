@@ -16,6 +16,7 @@ import node.lifespan as lifespan
 from core.notifier import ChainNotifier
 from db.blocks import BlockRepository
 from db.clients.sqlite import SqliteClient
+from node.api.http import BlockEvent
 from node.api.serializers.block import BlockSerializer
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -50,6 +51,7 @@ class FakeNodeApi:
         self.stream_sessions = list(stream_sessions or [])
         self.fetches: List[str] = []
         self.lib_slot = lib_slot
+        self.tips: Dict[str, str] = {}  # block hash -> tip hash reported with that block's event
 
     async def get_info(self):
         tip = max(self.blocks.values(), key=lambda payload: payload["header"]["slot"])["header"]["id"]
@@ -65,7 +67,13 @@ class FakeNodeApi:
             raise ConnectionError("node down")
         session = self.stream_sessions.pop(0)
         for block_hash in session:
-            yield BlockSerializer.model_validate(self.blocks[block_hash])
+            # Like the node: the event's tip is the block itself unless scripted otherwise.
+            tip = self.tips.get(block_hash, block_hash)
+            yield BlockEvent(
+                block=BlockSerializer.model_validate(self.blocks[block_hash]),
+                tip=bytes.fromhex(tip),
+                lib_slot=self.lib_slot,
+            )
         # returning ends the stream, as a node restart would
 
 
@@ -99,7 +107,7 @@ def test_backfill_stores_referenced_uncles_including_uncle_chains(app):
     blocks["05" * 32] = block_payload("05" * 32, "04" * 32, 5, uncles=[u2, u1])
     app.state.node_api = FakeNodeApi(blocks)
 
-    asyncio.run(lifespan.backfill_to_lib(app))
+    asyncio.run(lifespan.sync_to_node_tip(app))
 
     assert stored_heights(app) == list(range(1, 6))  # canonical chain unaffected
     assert (stored(app, "a1" * 32).height, stored(app, "a1" * 32).canonical) == (3, False)
@@ -115,7 +123,7 @@ def test_uncles_below_lib_are_not_probed(app):
     blocks["a2" * 32] = new_uncle  # the node still has the recent one, and has pruned the old one
     app.state.node_api = FakeNodeApi(blocks, lib_slot=4)
 
-    asyncio.run(lifespan.backfill_to_lib(app))
+    asyncio.run(lifespan.sync_to_node_tip(app))
 
     assert "a1" * 32 not in app.state.node_api.fetches
     assert stored(app, "a2" * 32).canonical is False
@@ -124,12 +132,15 @@ def test_uncles_below_lib_are_not_probed(app):
 def test_streamed_block_backfills_its_uncles(app):
     blocks = chain(3)
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.backfill_to_lib(app))
+    asyncio.run(lifespan.sync_to_node_tip(app))
 
     u = block_payload("a1" * 32, "02" * 32, 3)
     blocks["a1" * 32] = u
     blocks["04" * 32] = block_payload("04" * 32, "03" * 32, 4, uncles=[u])
-    asyncio.run(lifespan.store_streamed_block(app, BlockSerializer.model_validate(blocks["04" * 32])))
+    event = BlockEvent(
+        block=BlockSerializer.model_validate(blocks["04" * 32]), tip=bytes.fromhex("04" * 32), lib_slot=0
+    )
+    asyncio.run(lifespan.store_streamed_block(app, event))
 
     assert stored_heights(app) == [1, 2, 3, 4]
     assert stored(app, "a1" * 32).canonical is False
@@ -140,7 +151,7 @@ def test_backfill_inserts_oldest_first_in_batches_with_bounded_memory(app, monke
     blocks = chain(10)
     app.state.node_api = FakeNodeApi(blocks)
 
-    asyncio.run(lifespan.backfill_to_lib(app))
+    asyncio.run(lifespan.sync_to_node_tip(app))
 
     assert stored_heights(app) == list(range(1, 11))
     # Every block fetched once on the walk; the two newer batches (6 blocks)
@@ -151,7 +162,7 @@ def test_backfill_inserts_oldest_first_in_batches_with_bounded_memory(app, monke
 def test_backfill_stops_at_already_stored_block(app):
     blocks = chain(6)
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.backfill_to_lib(app))
+    asyncio.run(lifespan.sync_to_node_tip(app))
     fetched_before = len(app.state.node_api.fetches)
 
     # Two more blocks appear; walking from the new tip stops at block 6.
@@ -159,6 +170,7 @@ def test_backfill_stops_at_already_stored_block(app):
         h = f"{i:02x}" * 32
         blocks[h] = block_payload(h, f"{i - 1:02x}" * 32, i)
     asyncio.run(lifespan.backfill_chain_from_hash(app, "08" * 32))
+    asyncio.run(lifespan.follow_node_tip(app, bytes.fromhex("08" * 32)))
 
     assert stored_heights(app) == list(range(1, 9))
     assert len(app.state.node_api.fetches) - fetched_before == 2
@@ -167,7 +179,7 @@ def test_backfill_stops_at_already_stored_block(app):
 def test_subscription_reconnects_after_stream_ends_and_backfills_gap(app, monkeypatch):
     blocks = chain(3)
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.backfill_to_lib(app))
+    asyncio.run(lifespan.sync_to_node_tip(app))
 
     for i in (4, 5, 6):
         h = f"{i:02x}" * 32
@@ -197,7 +209,7 @@ def test_subscription_reconnects_after_stream_ends_and_backfills_gap(app, monkey
 def test_subscription_survives_stream_errors(app, monkeypatch):
     blocks = chain(2)
     app.state.node_api = FakeNodeApi(blocks, stream_sessions=[])  # every connect raises
-    asyncio.run(lifespan.backfill_to_lib(app))
+    asyncio.run(lifespan.sync_to_node_tip(app))
 
     sleeps: List[float] = []
 
@@ -211,3 +223,37 @@ def test_subscription_survives_stream_errors(app, monkeypatch):
         asyncio.run(lifespan.subscribe_to_new_blocks(app))
 
     assert sleeps == [1.0, 2.0, 4.0, 8.0]
+
+
+def test_streamed_event_follows_node_tip_even_onto_shorter_branch(app):
+    blocks = chain(4)  # canonical 1..4
+    app.state.node_api = FakeNodeApi(blocks)
+    asyncio.run(lifespan.sync_to_node_tip(app))
+    assert stored_heights(app) == [1, 2, 3, 4]
+
+    # The node reorgs onto a 3-block branch off block 2 and reports that as its tip.
+    blocks["b3" * 32] = block_payload("b3" * 32, "02" * 32, 3)
+    event = BlockEvent(
+        block=BlockSerializer.model_validate(blocks["b3" * 32]), tip=bytes.fromhex("b3" * 32), lib_slot=0
+    )
+    asyncio.run(lifespan.store_streamed_block(app, event))
+
+    assert stored_heights(app) == [1, 2, 3]
+    assert stored(app, "b3" * 32).canonical is True
+    assert stored(app, "03" * 32).canonical is False
+    assert stored(app, "04" * 32).canonical is False
+
+
+def test_streamed_event_fetches_an_unknown_tip(app):
+    # After a reconnect the first event's tip can be a block we never saw.
+    blocks = chain(3)
+    app.state.node_api = FakeNodeApi(blocks)
+    asyncio.run(lifespan.sync_to_node_tip(app))
+    for i in (4, 5):
+        blocks[f"{i:02x}" * 32] = block_payload(f"{i:02x}" * 32, f"{i - 1:02x}" * 32, i)
+    # Event for block 4 arrives, but the node's tip is already block 5.
+    event = BlockEvent(
+        block=BlockSerializer.model_validate(blocks["04" * 32]), tip=bytes.fromhex("05" * 32), lib_slot=0
+    )
+    asyncio.run(lifespan.store_streamed_block(app, event))
+    assert stored_heights(app) == [1, 2, 3, 4, 5]

@@ -17,7 +17,10 @@ class BlockRepository:
 
     async def create(self, blocks: List[Block], allow_chain_root: bool = False) -> None:
         """
-        Insert blocks, assign heights from their parents, and extend the canonical chain.
+        Insert blocks and assign heights from their parents.
+
+        Blocks are stored non-canonical; `set_canonical_tip` (driven by the node's
+        reported tip) decides which chain is canonical.
 
         Args:
             blocks: Blocks to insert. Blocks already stored (by hash) are skipped.
@@ -139,14 +142,22 @@ class BlockRepository:
             # the same commit so the index can never drift from the chain.
             session.flush()
             session.add_all(channel_operations_for_blocks(blocks_to_add))
-
-            # Longest chain wins; on a tie the current chain stays canonical.
-            candidate = max(blocks_to_add, key=lambda b: b.height)
-            current_tip_height = session.exec(select(sa_func.max(Block.height)).where(Block.canonical)).one()
-            if current_tip_height is None or candidate.height > current_tip_height:
-                _switch_canonical_chain(session, candidate)
-
             session.commit()
+
+    async def set_canonical_tip(self, tip_hash: bytes) -> int:
+        """Make the chain ending at `tip_hash` the canonical one, as the node's fork choice says.
+
+        Returns the number of blocks whose flag changed. The tip must already be
+        stored. The node's rule is not plain longest-chain, so this accepts a
+        tip on a shorter branch as readily as a longer one.
+        """
+        with self.client.session() as session:
+            tip = session.exec(select(Block).where(Block.hash == tip_hash)).first()
+            if tip is None:
+                raise ValueError(f"Tip {tip_hash.hex()[:16]}... is not stored")
+            changed = _switch_canonical_chain(session, tip)
+            session.commit()
+            return changed
 
     async def get_by_hash(self, block_hash: bytes) -> Optional[Block]:
         statement = select(Block).where(Block.hash == block_hash)
@@ -199,8 +210,9 @@ def _switch_canonical_chain(session: Session, tip: Block) -> int:
 
     Walks parent links from `tip` until it reaches a block that is already
     canonical (the common ancestor) or the root. Blocks on the old chain above
-    the ancestor are un-flagged, the walked path is flagged. Returns the number
-    of blocks flagged.
+    the ancestor are un-flagged, the walked path is flagged. A tip that is
+    already canonical but below the current canonical height (the node rolled
+    back) un-flags everything above it. Returns the number of blocks changed.
     """
     path_ids: List[int] = []
     ancestor_height = 0
@@ -210,6 +222,11 @@ def _switch_canonical_chain(session: Session, tip: Block) -> int:
         current = session.exec(select(Block).where(Block.hash == current.parent_block)).first()
     if current is not None:
         ancestor_height = current.height
+
+    if not path_ids:
+        # Tip already canonical: drop anything the node no longer considers part of the chain.
+        result = session.exec(update(Block).where(Block.canonical, Block.height > tip.height).values(canonical=False))
+        return result.rowcount
 
     if path_ids:
         # One stamp per switch: every block flagged here is newer, stream-wise,
