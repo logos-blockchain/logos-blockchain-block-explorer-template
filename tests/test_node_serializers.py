@@ -251,6 +251,23 @@ class TestNode030WireFormat:
         assert parsed.header.block_root == bytes.fromhex(header["body_root"])
         assert parsed.into_block().block_root == bytes.fromhex(header["body_root"])
 
+    def test_uncle_headers_are_kept(self, block):
+        uncle_header = dict(block["header"], id="ab" * 32, slot=block["header"]["slot"] - 1)
+        block["uncle_headers"] = [{"header": uncle_header, "signature": "cd" * 64}]
+        parsed = BlockSerializer.model_validate(block).into_block()
+        assert len(parsed.uncles) == 1
+        uncle = parsed.uncles[0]
+        assert uncle.hash == bytes.fromhex("ab" * 32)
+        assert uncle.slot == block["header"]["slot"] - 1
+        assert uncle.parent_block == bytes.fromhex(block["header"]["parent_block"])
+        assert uncle.leader_key == bytes.fromhex(block["header"]["proof_of_leadership"]["leader_key"])
+        # Round-trips through the JSON column shape.
+        assert parsed.model_dump(mode="json")["uncles"][0]["hash"] == "ab" * 32
+
+    def test_block_without_uncle_headers_has_none(self, block):
+        assert "uncle_headers" not in block  # pre-0.3.0 fixture
+        assert BlockSerializer.model_validate(block).into_block().uncles == []
+
     def test_header_legacy_block_root_still_accepted(self, block):
         assert BlockSerializer.model_validate(block).header.block_root == bytes.fromhex(block["header"]["block_root"])
 

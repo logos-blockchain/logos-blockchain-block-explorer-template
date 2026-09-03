@@ -22,13 +22,14 @@ FIXTURES = Path(__file__).parent / "fixtures"
 TEMPLATE = json.loads((FIXTURES / "block_new_format.json").read_text())
 
 
-def block_payload(hash: str, parent: str, slot: int) -> dict:
+def block_payload(hash: str, parent: str, slot: int, uncles: List[dict] | None = None) -> dict:
     """A node block payload derived from the real fixture, with its identity replaced."""
     payload = json.loads(json.dumps(TEMPLATE))
     payload["header"]["id"] = hash
     payload["header"]["parent_block"] = parent
     payload["header"]["slot"] = slot
     payload["transactions"] = []
+    payload["uncle_headers"] = [{"header": uncle["header"], "signature": "cd" * 64} for uncle in (uncles or [])]
     return payload
 
 
@@ -44,14 +45,15 @@ def chain(n: int) -> Dict[str, dict]:
 
 
 class FakeNodeApi:
-    def __init__(self, blocks: Dict[str, dict], stream_sessions: List[List[str]] | None = None):
+    def __init__(self, blocks: Dict[str, dict], stream_sessions: List[List[str]] | None = None, lib_slot: int = 0):
         self.blocks = blocks
         self.stream_sessions = list(stream_sessions or [])
         self.fetches: List[str] = []
+        self.lib_slot = lib_slot
 
     async def get_info(self):
-        tip = list(self.blocks)[-1]
-        return SimpleNamespace(lib=tip, tip=tip, slot=len(self.blocks), height=len(self.blocks))
+        tip = max(self.blocks.values(), key=lambda payload: payload["header"]["slot"])["header"]["id"]
+        return SimpleNamespace(lib=tip, tip=tip, slot=len(self.blocks), height=len(self.blocks), lib_slot=self.lib_slot)
 
     async def get_block_by_hash(self, block_hash: str):
         self.fetches.append(block_hash)
@@ -81,6 +83,56 @@ def app(tmp_path):
 
 def stored_heights(app) -> List[int]:
     return [b.height for b in asyncio.run(app.state.block_repository.get_latest(1000))]
+
+
+def stored(app, hash: str):
+    return asyncio.run(app.state.block_repository.get_by_hash(bytes.fromhex(hash)))
+
+
+def test_backfill_stores_referenced_uncles_including_uncle_chains(app):
+    blocks = chain(5)
+    # Uncle U1 competes with block 3 (parent = block 2); U2 builds on U1. Block 5 references both.
+    u1 = block_payload("a1" * 32, "02" * 32, 3)
+    u2 = block_payload("a2" * 32, "a1" * 32, 4)
+    blocks["a1" * 32] = u1
+    blocks["a2" * 32] = u2
+    blocks["05" * 32] = block_payload("05" * 32, "04" * 32, 5, uncles=[u2, u1])
+    app.state.node_api = FakeNodeApi(blocks)
+
+    asyncio.run(lifespan.backfill_to_lib(app))
+
+    assert stored_heights(app) == list(range(1, 6))  # canonical chain unaffected
+    assert (stored(app, "a1" * 32).height, stored(app, "a1" * 32).canonical) == (3, False)
+    assert (stored(app, "a2" * 32).height, stored(app, "a2" * 32).canonical) == (4, False)
+
+
+def test_uncles_below_lib_are_not_probed(app):
+    # The node prunes non-canonical blocks behind the LIB, so asking for them is pointless.
+    blocks = chain(5)
+    old_uncle = block_payload("a1" * 32, "01" * 32, 2)  # slot 2, below LIB
+    new_uncle = block_payload("a2" * 32, "03" * 32, 4)  # slot 4, at/above LIB
+    blocks["05" * 32] = block_payload("05" * 32, "04" * 32, 5, uncles=[old_uncle, new_uncle])
+    blocks["a2" * 32] = new_uncle  # the node still has the recent one, and has pruned the old one
+    app.state.node_api = FakeNodeApi(blocks, lib_slot=4)
+
+    asyncio.run(lifespan.backfill_to_lib(app))
+
+    assert "a1" * 32 not in app.state.node_api.fetches
+    assert stored(app, "a2" * 32).canonical is False
+
+
+def test_streamed_block_backfills_its_uncles(app):
+    blocks = chain(3)
+    app.state.node_api = FakeNodeApi(blocks)
+    asyncio.run(lifespan.backfill_to_lib(app))
+
+    u = block_payload("a1" * 32, "02" * 32, 3)
+    blocks["a1" * 32] = u
+    blocks["04" * 32] = block_payload("04" * 32, "03" * 32, 4, uncles=[u])
+    asyncio.run(lifespan.store_streamed_block(app, BlockSerializer.model_validate(blocks["04" * 32])))
+
+    assert stored_heights(app) == [1, 2, 3, 4]
+    assert stored(app, "a1" * 32).canonical is False
 
 
 def test_backfill_inserts_oldest_first_in_batches_with_bounded_memory(app, monkeypatch):

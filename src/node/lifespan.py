@@ -12,6 +12,7 @@ from db.channels import ChannelOperationRepository
 from db.clients import SqliteClient
 from db.transaction import TransactionRepository
 from models.block import Block
+from models.header.uncle import UncleHeader
 from node.api.http import HttpNodeApi
 from node.api.serializers.block import BlockSerializer
 
@@ -39,6 +40,7 @@ async def backfill_to_lib(app: "NBE") -> None:
         try:
             info = await app.state.node_api.get_info()
             logger.info(f"Node info: LIB={info.lib}, tip={info.tip}, slot={info.slot}, height={info.height}")
+            app.state.lib_slot = info.lib_slot
 
             await backfill_chain_from_hash(app, info.lib)
             return
@@ -100,11 +102,53 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
                 block = block_serializer.into_block()
             blocks.append(block)
 
-        first_slot, last_slot = blocks[0].slot, blocks[-1].slot  # create() detaches the objects
+        # create() detaches the objects, so read what the follow-up needs first.
+        first_slot, last_slot = blocks[0].slot, blocks[-1].slot
+        uncles = [uncle for block in blocks for uncle in block.uncles]
         # Only the oldest batch may start a chain root (its parent is genesis or pruned).
         await app.state.block_repository.create(blocks, allow_chain_root=(idx == 0))
         await app.state.chain_notifier.publish()
         logger.info(f"Backfilled {len(blocks)} blocks (slots {first_slot} to {last_slot})")
+        await backfill_missing_uncles(app, uncles)
+
+
+# Uncle availability probes are independent reads, so they run concurrently.
+UNCLE_FETCH_CONCURRENCY = 16
+
+
+async def backfill_missing_uncles(app: "NBE", uncles: List[UncleHeader]) -> None:
+    """Fetch and store referenced uncle blocks the explorer does not have.
+
+    The chain walk only visits canonical blocks, so uncles are missing unless
+    the live stream delivered them. The node prunes non-canonical blocks once
+    the LIB passes them, so only uncles at or above the LIB slot are asked for;
+    the rest are gone for good. Uncles can chain, so a stored uncle's own
+    missing ancestors and uncles are fetched too. Uncles are older than the
+    block referencing them, so storing them never moves the canonical tip.
+    """
+    repository = app.state.block_repository
+    lib_slot = getattr(app.state, "lib_slot", 0)
+    candidates = {uncle.hash: uncle for uncle in uncles if uncle.slot >= lib_slot}
+    missing = [h for h in candidates if await repository.get_by_hash(h) is None]
+
+    for start in range(0, len(missing), UNCLE_FETCH_CONCURRENCY):
+        chunk = missing[start : start + UNCLE_FETCH_CONCURRENCY]
+        fetched = await asyncio.gather(*(app.state.node_api.get_block_by_hash(h.hex()) for h in chunk))
+        # Inserts stay sequential: SQLite has a single writer and uncles may chain.
+        for uncle_hash, block_serializer in zip(chunk, fetched):
+            if block_serializer is None:
+                logger.debug(f"Uncle {uncle_hash.hex()[:16]}... already pruned by the node; skipping")
+                continue
+            if await repository.get_by_hash(uncle_hash) is not None:
+                continue  # stored meanwhile as an ancestor of another uncle
+            block = block_serializer.into_block()
+            if await repository.get_by_hash(block.parent_block) is None:
+                await backfill_chain_from_hash(app, block.parent_block.hex())
+            nested_uncles = list(block.uncles)
+            block_slot = block.slot
+            await repository.create([block])
+            logger.debug(f"Stored uncle block at slot {block_slot}")
+            await backfill_missing_uncles(app, nested_uncles)
 
 
 @asynccontextmanager
@@ -181,9 +225,11 @@ async def store_streamed_block(app: "NBE", block_serializer: BlockSerializer) ->
                 return
 
         block_slot = block.slot  # create() detaches the object from the session
+        uncles = list(block.uncles)
         await app.state.block_repository.create([block])
         await app.state.chain_notifier.publish()
         logger.debug(f"Stored block at slot {block_slot}")
+        await backfill_missing_uncles(app, uncles)
 
     except CancelledError:
         raise
