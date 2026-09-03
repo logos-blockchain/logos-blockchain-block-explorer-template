@@ -21,6 +21,9 @@ async def main():
         reload=False,
         loop="asyncio",
         log_config=None,
+        # The NDJSON streams are held open indefinitely by browser tabs; without
+        # a bound, uvicorn waits for them forever on SIGTERM.
+        timeout_graceful_shutdown=5,
     )
     server = uvicorn.Server(config)
 
