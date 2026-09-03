@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,23 @@ import httpx
 from constants import DIR_REPO
 
 ENV_FILEPATH = DIR_REPO.joinpath(".env")
+
+logger = logging.getLogger(__name__)
+
+
+def env_var(name: str, default: Optional[str] = None) -> Optional[str]:
+    """An LBE_* variable, falling back to its NBE_* predecessor.
+
+    Deployments still set the NBE_* names (the project was the Nomos Block
+    Explorer); the fallback goes once they have moved to LBE_*.
+    """
+    value = os.environ.get(f"LBE_{name}")
+    if value is None:
+        legacy = f"NBE_{name}"
+        value = os.environ.get(legacy)
+        if value is not None:
+            logger.warning(f"{legacy} is deprecated; set LBE_{name} instead")
+    return default if value is None else value
 
 
 def load_dotenv(path: Path = ENV_FILEPATH) -> None:
@@ -53,16 +71,29 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        env = os.environ
-        auth = env.get("LBE_NODE_API_AUTH")
+        auth = env_var("NODE_API_AUTH")
         return cls(
-            host=env.get("LBE_HOST", cls.host),
-            port=int(env.get("LBE_PORT", cls.port)),
-            base_path=env.get("LBE_BASE_PATH", "").strip().rstrip("/"),
-            node_api_host=env.get("LBE_NODE_API_HOST", cls.node_api_host),
-            node_api_port=int(env.get("LBE_NODE_API_PORT", cls.node_api_port)),
-            node_api_protocol=env.get("LBE_NODE_API_PROTOCOL", cls.node_api_protocol),
-            node_api_timeout=int(env.get("LBE_NODE_API_TIMEOUT", cls.node_api_timeout)),
+            host=env_var("HOST", cls.host),
+            port=int(env_var("PORT", str(cls.port))),
+            base_path=env_var("BASE_PATH", "").strip().rstrip("/"),
+            node_api_host=env_var("NODE_API_HOST", cls.node_api_host),
+            node_api_port=int(env_var("NODE_API_PORT", str(cls.node_api_port))),
+            node_api_protocol=env_var("NODE_API_PROTOCOL", cls.node_api_protocol),
+            node_api_timeout=int(env_var("NODE_API_TIMEOUT", str(cls.node_api_timeout))),
             node_api_auth=parse_basic_auth(auth) if auth else None,
-            database_path=env.get("LBE_DATABASE_PATH", cls.database_path),
+            database_path=cls._database_path(),
         )
+
+    @classmethod
+    def _database_path(cls) -> str:
+        path = env_var("DATABASE_PATH")
+        if path is not None:
+            return path
+        # Deployments still pass the SQLAlchemy-style URL the explorer used to take.
+        url = os.environ.get("NBE_DATABASE_URL")
+        if url is not None:
+            logger.warning("NBE_DATABASE_URL is deprecated; set LBE_DATABASE_PATH to the database file path instead")
+            if not url.startswith("sqlite:///"):
+                raise ValueError(f"Unsupported NBE_DATABASE_URL: {url!r} (only sqlite:/// URLs were ever supported)")
+            return url.removeprefix("sqlite:///")
+        return cls.database_path

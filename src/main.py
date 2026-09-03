@@ -13,7 +13,6 @@ async def main():
         create_app(settings),
         host=settings.host,
         port=settings.port,
-        root_path=settings.base_path,
         loop="asyncio",
         log_config=None,
         # The NDJSON streams are held open indefinitely by browser tabs; without

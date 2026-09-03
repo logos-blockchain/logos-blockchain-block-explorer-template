@@ -104,6 +104,9 @@ LBE_DATABASE_PATH=sqlite.db  # SQLite database file (defaults to sqlite.db in th
 ```
 A `.env` file in the repository root is loaded at startup; variables already set in the environment win.
 
+The previous `NBE_*` names (and `NBE_DATABASE_URL=sqlite:///<path>`) are still accepted as deprecated aliases
+until deployments have moved to `LBE_*`; a warning is logged when one is used.
+
 If running the Block Explorer with Docker, these can be overridden.
 
 ## Considerations

@@ -53,5 +53,5 @@ def get_logging_config(lbe_log_level: str):
 
 
 def setup_logging():
-    lbe_log_level = os.getenv("LBE_LOG_LEVEL", "INFO").upper()
+    lbe_log_level = (os.getenv("LBE_LOG_LEVEL") or os.getenv("NBE_LOG_LEVEL") or "INFO").upper()
     dictConfig(get_logging_config(lbe_log_level))
