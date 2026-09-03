@@ -1,5 +1,3 @@
-import hashlib
-import json
 from typing import List
 
 from pydantic import Field
@@ -159,16 +157,6 @@ class SignedTransactionSerializer(NbeSerializer):
         description="List of OperationProof. Order should match `Self::transaction::ops`.",
     )
 
-    def _compute_hash(self) -> bytes:
-        # Prefer the canonical hash reported by the node (newer nodes include it
-        # in mantle_tx). A locally computed JSON hash will NOT match the chain's
-        # real tx hash, so it is only a last-resort fallback for older nodes.
-        if self.transaction.hash is not None:
-            return self.transaction.hash
-        data = self.transaction.model_dump(mode="json", exclude={"hash"})
-        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode()).digest()
-
     def into_transaction(self) -> Transaction:
         ops = self.transaction.ops
         if len(ops) != len(self.operations_proofs):
@@ -183,7 +171,7 @@ class SignedTransactionSerializer(NbeSerializer):
 
         return Transaction.model_validate(
             {
-                "hash": self._compute_hash(),
+                "hash": self.transaction.hash,
                 "operations": operations,
                 "execution_gas_price": self.transaction.execution_gas_price,
                 "storage_gas_price": self.transaction.storage_gas_price,

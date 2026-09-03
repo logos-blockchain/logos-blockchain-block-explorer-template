@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from node.api.http import normalize_info_payload
 from node.api.serializers.block import BlockSerializer
@@ -130,11 +131,11 @@ class TestBlockParsing:
         assert tx.execution_gas_price == 0
         assert tx.storage_gas_price == 0
 
-    def test_hash_fallback_when_node_omits_it(self, block):
+    def test_missing_hash_is_rejected(self, block):
+        # The hash is computed by the node; a payload without it must not be ingested.
         del block["transactions"][0]["mantle_tx"]["hash"]
-        parsed = BlockSerializer.model_validate(block)
-        tx = parsed.transactions[0].into_transaction()
-        assert len(tx.hash) == 32  # deterministic local fallback
+        with pytest.raises(ValidationError):
+            BlockSerializer.model_validate(block)
 
 
 class TestUnknownOps:
