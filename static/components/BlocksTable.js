@@ -4,26 +4,17 @@ import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { PAGE, API } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
 import { shortenHex, streamNdjson } from '../lib/utils.js';
-import { subscribeFork } from '../lib/fork.js';
 
-const normalize = (raw) => {
-    const header = raw.header ?? null;
-    const txLen = Array.isArray(raw.transactions)
-        ? raw.transactions.length
-        : Array.isArray(raw.txs)
-          ? raw.txs.length
-          : 0;
-
-    return {
-        id: Number(raw.id ?? 0),
-        height: Number(raw.height ?? 0),
-        slot: Number(raw.slot ?? header?.slot ?? 0),
-        hash: raw.hash ?? header?.hash ?? '',
-        parent: raw.parent_block_hash ?? header?.parent_block ?? raw.parent_block ?? '',
-        root: raw.block_root ?? header?.block_root ?? '',
-        transactionCount: txLen,
-    };
-};
+const normalize = (raw) => ({
+    id: Number(raw.id ?? 0),
+    height: Number(raw.height ?? 0),
+    slot: Number(raw.slot ?? 0),
+    hash: raw.hash ?? '',
+    parent: raw.parent_block_hash ?? '',
+    root: raw.block_root ?? '',
+    transactionCount: Number(raw.transaction_count ?? 0),
+    uncleCount: Number(raw.uncle_count ?? 0),
+});
 
 export default function BlocksTable({ live, onDisableLive }) {
     const [blocks, setBlocks] = useState([]);
@@ -32,18 +23,12 @@ export default function BlocksTable({ live, onDisableLive }) {
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [fork, setFork] = useState(null);
 
     const abortRef = useRef(null);
     const seenKeysRef = useRef(new Set());
 
-    // Subscribe to fork-choice changes
-    useEffect(() => {
-        return subscribeFork((newFork) => setFork(newFork));
-    }, []);
-
     // Fetch paginated blocks
-    const fetchBlocks = useCallback(async (pageNum, currentFork) => {
+    const fetchBlocks = useCallback(async (pageNum) => {
         // Stop any live stream
         abortRef.current?.abort();
         seenKeysRef.current.clear();
@@ -51,7 +36,7 @@ export default function BlocksTable({ live, onDisableLive }) {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(API.BLOCKS_LIST(pageNum, TABLE_SIZE, currentFork));
+            const res = await fetch(API.BLOCKS_LIST(pageNum, TABLE_SIZE));
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             setBlocks(data.blocks.map(normalize));
@@ -66,7 +51,7 @@ export default function BlocksTable({ live, onDisableLive }) {
     }, []);
 
     // Start live streaming
-    const startLiveStream = useCallback((currentFork) => {
+    const startLiveStream = useCallback(() => {
         abortRef.current?.abort();
         abortRef.current = new AbortController();
         seenKeysRef.current.clear();
@@ -76,17 +61,18 @@ export default function BlocksTable({ live, onDisableLive }) {
 
         let liveBlocks = [];
 
-        const url = `${API.BLOCKS_STREAM(currentFork)}&prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`;
         streamNdjson(
-            url,
+            API.BLOCKS_STREAM(TABLE_SIZE),
             (raw) => {
                 const b = normalize(raw);
-                const key = `${b.id}:${b.slot}`;
-                if (seenKeysRef.current.has(key)) return;
-                seenKeysRef.current.add(key);
+                if (seenKeysRef.current.has(b.hash)) return;
+                seenKeysRef.current.add(b.hash);
 
-                // Add to front, keep max TABLE_SIZE
-                liveBlocks = [b, ...liveBlocks].slice(0, TABLE_SIZE);
+                // One row per height: a reorg replaces the orphaned block at that height.
+                // Newest first, keep max TABLE_SIZE.
+                const byHeight = new Map(liveBlocks.map((x) => [x.height, x]));
+                byHeight.set(b.height, b);
+                liveBlocks = [...byHeight.values()].sort((x, y) => y.height - x.height).slice(0, TABLE_SIZE);
                 setBlocks([...liveBlocks]);
                 setLoading(false);
             },
@@ -102,33 +88,25 @@ export default function BlocksTable({ live, onDisableLive }) {
         );
     }, []);
 
-    // Handle live mode and fork changes
     useEffect(() => {
-        if (fork == null) return;
         if (live) {
-            startLiveStream(fork);
+            startLiveStream();
         } else {
             setPage(0);
-            fetchBlocks(0, fork);
+            fetchBlocks(0);
         }
         return () => abortRef.current?.abort();
-    }, [live, fork, startLiveStream]);
+    }, [live, startLiveStream, fetchBlocks]);
 
     // Go to a page (or exit live mode into page 0)
     const goToPage = (newPage) => {
-        if (fork == null) return;
         if (live) {
             onDisableLive?.();
             return; // useEffect will handle fetching page 0 when live changes
         }
         if (newPage >= 0) {
-            fetchBlocks(newPage, fork);
+            fetchBlocks(newPage);
         }
-    };
-
-    const navigateToBlockDetail = (blockHash) => {
-        history.pushState({}, '', PAGE.BLOCK_DETAIL(blockHash));
-        window.dispatchEvent(new PopStateEvent('popstate'));
     };
 
     const renderRow = (b, idx) => {
@@ -145,10 +123,6 @@ export default function BlocksTable({ live, onDisableLive }) {
                         class: 'linkish mono',
                         href: PAGE.BLOCK_DETAIL(b.hash),
                         title: b.hash,
-                        onClick: (e) => {
-                            e.preventDefault();
-                            navigateToBlockDetail(b.hash);
-                        },
                     },
                     shortenHex(b.hash),
                 ),
@@ -167,10 +141,6 @@ export default function BlocksTable({ live, onDisableLive }) {
                         class: 'linkish mono',
                         href: PAGE.BLOCK_DETAIL(b.parent),
                         title: b.parent,
-                        onClick: (e) => {
-                            e.preventDefault();
-                            navigateToBlockDetail(b.parent);
-                        },
                     },
                     shortenHex(b.parent),
                 ),
@@ -179,6 +149,8 @@ export default function BlocksTable({ live, onDisableLive }) {
             h('td', null, h('span', { class: 'mono', title: b.root }, shortenHex(b.root))),
             // Transactions
             h('td', null, h('span', { class: 'mono' }, String(b.transactionCount))),
+            // Uncles
+            h('td', null, h('span', { class: 'mono' }, String(b.uncleCount))),
         );
     };
 
@@ -186,6 +158,7 @@ export default function BlocksTable({ live, onDisableLive }) {
         return h(
             'tr',
             { key: `ph-${idx}`, class: 'ph' },
+            h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
             h('td', null, '\u00A0'),
@@ -232,6 +205,7 @@ export default function BlocksTable({ live, onDisableLive }) {
                     h('col', { style: 'width:200px' }), // Parent
                     h('col', { style: 'width:200px' }), // Block Root
                     h('col', { style: 'width:100px' }), // Transactions
+                    h('col', { style: 'width:70px' }), // Uncles
                 ),
                 h(
                     'thead',
@@ -245,6 +219,7 @@ export default function BlocksTable({ live, onDisableLive }) {
                         h('th', null, 'Parent'),
                         h('th', null, 'Block Root'),
                         h('th', null, 'Transactions'),
+                        h('th', null, 'Uncles'),
                     ),
                 ),
                 h('tbody', null, ...rows),

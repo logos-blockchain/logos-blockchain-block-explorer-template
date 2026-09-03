@@ -1,5 +1,5 @@
-from asyncio import Task, gather
-from typing import Literal, Optional
+from asyncio import Task
+from typing import Optional
 
 from fastapi import FastAPI
 from pydantic import Field, field_validator
@@ -9,21 +9,17 @@ from starlette.datastructures import State
 from constants import DIR_REPO
 from core.authentication import Authentication
 from db.blocks import BlockRepository
+from db.channels import ChannelOperationRepository
 from db.clients import DbClient
+from core.notifier import ChainNotifier
 from db.transaction import TransactionRepository
-from node.api.base import NodeApi
-from node.manager.base import NodeManager
+from node.api.http import HttpNodeApi
 
 ENV_FILEPATH = DIR_REPO.joinpath(".env")
 
 
 class NBESettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILEPATH, extra="ignore")
-
-    node_compose_filepath: Optional[str] = Field(alias="NBE_NODE_COMPOSE_FILEPATH", default=None)
-
-    node_api: Literal["http", "fake"] = Field(alias="NBE_NODE_API", default="http")
-    node_manager: Literal["docker", "noop"] = Field(alias="NBE_NODE_MANAGER", default="noop")
 
     node_api_host: str = Field(alias="NBE_NODE_API_HOST", default="127.0.0.1")
     node_api_port: int = Field(alias="NBE_NODE_API_PORT", default=8080)
@@ -46,27 +42,13 @@ class NBESettings(BaseSettings):
 
 
 class NBEState(State):
-    signal_exit: bool = False  # TODO: asyncio.Event
-    node_manager: Optional[NodeManager]
-    node_api: Optional[NodeApi]
+    node_api: HttpNodeApi
     db_client: DbClient
     block_repository: BlockRepository
     transaction_repository: TransactionRepository
+    channel_repository: ChannelOperationRepository
+    chain_notifier: ChainNotifier
     subscription_to_updates_handle: Task
-
-    @property
-    def is_running(self) -> bool:
-        return not self.signal_exit
-
-    async def stop(self):
-        self.signal_exit = True
-        await self._wait_tasks_finished()
-
-    async def _wait_tasks_finished(self):
-        await gather(
-            self.subscription_to_updates_handle,
-            return_exceptions=True,
-        )
 
 
 class NBE(FastAPI):

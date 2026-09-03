@@ -4,28 +4,26 @@ from typing import List, Optional
 from sqlalchemy import Column
 from sqlmodel import Field, Relationship
 
-from core.models import TimestampedModel
+from core.models import IdNbeModel
 from core.sqlmodel import PydanticJsonColumn
 from core.types import HexBytes
-from models.aliases import Gas
 from models.block import Block
 from models.transactions.operations.operation import Operation
 
 logger = logging.getLogger(__name__)
 
 
-class Transaction(TimestampedModel, table=True):
+class Transaction(IdNbeModel, table=True):
     __tablename__ = "transaction"
 
     # --- Columns --- #
 
-    block_id: Optional[int] = Field(default=None, foreign_key="block.id", nullable=False)
-    hash: HexBytes = Field(nullable=False)
+    block_id: Optional[int] = Field(default=None, foreign_key="block.id", nullable=False, index=True)
+    # Not unique: the same transaction can be included by competing blocks.
+    hash: HexBytes = Field(nullable=False, index=True)
     operations: List[Operation] = Field(
         default_factory=list, sa_column=Column(PydanticJsonColumn(Operation, many=True), nullable=False)
     )
-    execution_gas_price: Gas
-    storage_gas_price: Gas
 
     # --- Relationships --- #
 
@@ -38,4 +36,4 @@ class Transaction(TimestampedModel, table=True):
         return f"Transaction({self.operations})"
 
     def __repr__(self) -> str:
-        return f"<Transaction(id={self.id}, created_at={self.created_at}, operations={self.operations})>"
+        return f"<Transaction(id={self.id}, hash={self.hash.hex()[:16]}..., operations={len(self.operations)})>"

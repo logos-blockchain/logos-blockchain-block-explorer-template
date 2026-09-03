@@ -1,14 +1,14 @@
-"""Tests for node API serializers against the current (0.1.3-rc) wire format.
+"""Tests for node API serializers against the current (0.3.0-rc.2) wire format.
 
-The fixtures are real data: block_new_format.json is a block captured from a
-node, and ops_samples_testnet.json holds per-opcode op/proof samples harvested
-from the chain.
+block_new_format.json is a real block captured from a node; the per-op tests
+patch its first transaction with the payload under test.
 """
 
 import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from node.api.http import normalize_info_payload
 from node.api.serializers.block import BlockSerializer
@@ -16,10 +16,12 @@ from node.api.serializers.fields import bytes_from_hex_or_intarray
 from node.api.serializers.info import InfoSerializer
 from node.api.serializers.operation import (
     ChannelConfigOpSerializer,
+    ClaimPowRewardOpSerializer,
     LeaderClaimOpSerializer,
+    SDPDeclareOpSerializer,
     UnknownOpSerializer,
 )
-from node.api.serializers.proof import Ed25519SignatureSerializer
+from node.api.serializers.proof import Ed25519SignatureSerializer, NoneProofSerializer
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -123,17 +125,16 @@ class TestBlockParsing:
         assert parsed.hash == bytes.fromhex(block["header"]["id"])
         assert parsed.transactions[0].operations[0].content.type == "ChannelInscribe"
 
-    def test_missing_gas_prices_default_to_zero(self, block):
-        parsed = BlockSerializer.model_validate(block)
-        tx = parsed.transactions[0].into_transaction()
-        assert tx.execution_gas_price == 0
-        assert tx.storage_gas_price == 0
+    def test_missing_header_id_is_rejected(self, block):
+        del block["header"]["id"]
+        with pytest.raises(ValidationError):
+            BlockSerializer.model_validate(block)
 
-    def test_hash_fallback_when_node_omits_it(self, block):
+    def test_missing_hash_is_rejected(self, block):
+        # The hash is computed by the node; a payload without it must not be ingested.
         del block["transactions"][0]["mantle_tx"]["hash"]
-        parsed = BlockSerializer.model_validate(block)
-        tx = parsed.transactions[0].into_transaction()
-        assert len(tx.hash) == 32  # deterministic local fallback
+        with pytest.raises(ValidationError):
+            BlockSerializer.model_validate(block)
 
 
 class TestUnknownOps:
@@ -149,8 +150,8 @@ class TestUnknownOps:
         assert content.raw_payload is not None  # raw payload preserved verbatim
 
     def test_unknown_op_with_noproof_is_preserved_not_fatal(self, block):
-        # e.g. a LeaderClaim carries no proof; neither the op nor the
-        # "NoProof" unit variant should break ingestion.
+        # A malformed op payload plus the legacy "NoProof" marker must not
+        # break ingestion: the op degrades to UnknownOp, the proof to None.
         tx = block["transactions"][0]
         tx["mantle_tx"]["ops"][0] = {"opcode": 48, "payload": {"rewards_root": "aa" * 32}}
         tx["ops_proofs"][0] = "NoProof"
@@ -158,8 +159,15 @@ class TestUnknownOps:
         operation = parsed.transactions[0].into_transaction().operations[0]
         assert operation.content.type == "UnknownOp"
         assert operation.content.opcode == 48
+        assert operation.proof.type == "None"
+
+    def test_unknown_tagged_proof_is_preserved_not_fatal(self, block):
+        tx = block["transactions"][0]
+        tx["ops_proofs"][0] = {"FutureProof": {"bytes": "aa"}}
+        parsed = BlockSerializer.model_validate(block)
+        operation = parsed.transactions[0].into_transaction().operations[0]
         assert operation.proof.type == "Unknown"
-        assert operation.proof.raw == "NoProof"
+        assert operation.proof.raw == {"FutureProof": {"bytes": "aa"}}
 
 
 class TestChannelConfigOp:
@@ -176,7 +184,9 @@ class TestChannelConfigOp:
         }
         tx = block["transactions"][0]
         tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": payload}]
-        tx["ops_proofs"] = [{"ChannelMultiSigProof": {"signatures": [{"signature": "ee" * 64, "channel_key_index": 0}]}}]
+        tx["ops_proofs"] = [
+            {"ChannelMultiSigProof": {"signatures": [{"signature": "ee" * 64, "channel_key_index": 0}]}}
+        ]
         parsed = BlockSerializer.model_validate(block)
         op = parsed.transactions[0].transaction.ops[0]
         assert isinstance(op, ChannelConfigOpSerializer)
@@ -186,21 +196,6 @@ class TestChannelConfigOp:
         assert operation.content.type == "ChannelConfig"
         assert operation.proof.type == "ChannelMultiSig"
         assert operation.proof.signatures[0].channel_key_index == 0
-
-    def test_legacy_setkeys_payload_degrades_to_unknown(self, block):
-        """Pre-0.2.x opcode 16 payloads lack the config fields; they must not
-        break ingestion."""
-        samples = json.loads((FIXTURES / "ops_samples_testnet.json").read_text())
-        legacy = samples["16"]
-        tx = block["transactions"][0]
-        tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": legacy["payload"]}]
-        tx["ops_proofs"] = [legacy["proof"]]
-        parsed = BlockSerializer.model_validate(block)
-        op = parsed.transactions[0].transaction.ops[0]
-        assert isinstance(op, UnknownOpSerializer)
-        content = parsed.transactions[0].into_transaction().operations[0].content
-        assert content.type == "UnknownOp"
-        assert content.opcode == 16
 
 
 class TestNewOps:
@@ -242,3 +237,155 @@ class TestNewOps:
         parsed = BlockSerializer.model_validate(block)
         content = parsed.transactions[0].into_transaction().operations[0].content
         assert content.type == expected_type
+
+
+class TestNode030WireFormat:
+    """Changes introduced with node 0.3.0-rc.2 (devnet reset of 2026-09)."""
+
+    def test_header_body_root_is_accepted(self, block):
+        # 0.3.0 renamed block_root -> body_root and added uncle_headers.
+        header = block["header"]
+        header["body_root"] = header.pop("block_root")
+        block["uncle_headers"] = []
+        parsed = BlockSerializer.model_validate(block)
+        assert parsed.header.block_root == bytes.fromhex(header["body_root"])
+        assert parsed.into_block().block_root == bytes.fromhex(header["body_root"])
+
+    def test_uncle_headers_are_kept(self, block):
+        uncle_header = dict(block["header"], id="ab" * 32, slot=block["header"]["slot"] - 1)
+        block["uncle_headers"] = [{"header": uncle_header, "signature": "cd" * 64}]
+        parsed = BlockSerializer.model_validate(block).into_block()
+        assert len(parsed.uncles) == 1
+        uncle = parsed.uncles[0]
+        assert uncle.hash == bytes.fromhex("ab" * 32)
+        assert uncle.slot == block["header"]["slot"] - 1
+        assert uncle.parent_block == bytes.fromhex(block["header"]["parent_block"])
+        assert uncle.leader_key == bytes.fromhex(block["header"]["proof_of_leadership"]["leader_key"])
+        # Round-trips through the JSON column shape.
+        assert parsed.model_dump(mode="json")["uncles"][0]["hash"] == "ab" * 32
+
+    def test_block_without_uncle_headers_has_none(self, block):
+        assert "uncle_headers" not in block  # pre-0.3.0 fixture
+        assert BlockSerializer.model_validate(block).into_block().uncles == []
+
+    def test_header_legacy_block_root_still_accepted(self, block):
+        assert BlockSerializer.model_validate(block).header.block_root == bytes.fromhex(block["header"]["block_root"])
+
+    def test_claim_pow_reward_with_none_proof(self, block):
+        tx = block["transactions"][0]
+        tx["mantle_tx"]["ops"] = [
+            {
+                "opcode": 64,
+                "payload": {
+                    "epoch_nonce": "aa" * 32,
+                    "block_hash": list(range(32)),  # plain [u8; 32] serializes as an int array
+                    "public_key": "cc" * 32,
+                },
+            }
+        ]
+        tx["ops_proofs"] = [{"None": None}]
+        parsed = BlockSerializer.model_validate(block)
+        op = parsed.transactions[0].transaction.ops[0]
+        assert isinstance(op, ClaimPowRewardOpSerializer)
+        assert isinstance(parsed.transactions[0].operations_proofs[0], NoneProofSerializer)
+        operation = parsed.transactions[0].into_transaction().operations[0]
+        assert operation.content.type == "ClaimPowReward"
+        assert operation.content.block_hash == bytes(range(32))
+        assert operation.content.public_key == bytes.fromhex("cc" * 32)
+        assert operation.proof.type == "None"
+        # Round-trips through the JSON column representation.
+        dumped = operation.model_dump(mode="json")
+        assert dumped["content"]["block_hash"] == bytes(range(32)).hex()
+        assert dumped["proof"] == {"type": "None"}
+
+    @pytest.mark.parametrize("field", ["service_note_id", "locked_note_id"], ids=["0.3.0", "0.2.x"])
+    def test_sdp_declare_note_field_rename(self, block, field):
+        tx = block["transactions"][0]
+        tx["mantle_tx"]["ops"] = [
+            {
+                "opcode": 32,
+                "payload": {
+                    "service_type": "BN",
+                    "locators": ["/ip4/127.0.0.1/udp/3000/quic-v1"],
+                    "provider_id": "aa" * 32,
+                    "zk_id": "bb" * 32,
+                    field: "cc" * 32,
+                },
+            }
+        ]
+        tx["ops_proofs"] = [
+            {
+                "ZkAndEd25519Sigs": {
+                    "zk_sig": {"pi_a": "01" * 32, "pi_b": "02" * 64, "pi_c": "03" * 32},
+                    "ed25519_sig": "04" * 64,
+                }
+            }
+        ]
+        parsed = BlockSerializer.model_validate(block)
+        assert isinstance(parsed.transactions[0].transaction.ops[0], SDPDeclareOpSerializer)
+        content = parsed.transactions[0].into_transaction().operations[0].content
+        assert content.type == "SDPDeclare"
+        assert content.service_note_id == bytes.fromhex("cc" * 32)
+        assert content.model_dump(mode="json")["service_note_id"] == "cc" * 32
+
+    @pytest.mark.parametrize("field", ["service_note_id", "locked_note_id"], ids=["0.3.0", "0.2.x"])
+    def test_sdp_withdraw_note_field_rename(self, block, field):
+        tx = block["transactions"][0]
+        tx["mantle_tx"]["ops"] = [
+            {"opcode": 33, "payload": {"declaration_id": "aa" * 32, "nonce": 4, field: "bb" * 32}}
+        ]
+        tx["ops_proofs"] = [{"ZkSig": {"pi_a": "01" * 32, "pi_b": "02" * 64, "pi_c": "03" * 32}}]
+        content = BlockSerializer.model_validate(block).transactions[0].into_transaction().operations[0].content
+        assert content.type == "SDPWithdraw"
+        assert content.service_note_id == bytes.fromhex("bb" * 32)
+
+    def test_channel_config_parent(self, block):
+        payload = {
+            "channel": "ab" * 32,
+            "parent": "00" * 32,
+            "keys": ["cd" * 32],
+            "posting_timeframe": 10,
+            "posting_timeout": 20,
+            "configuration_threshold": 1,
+            "transfer_threshold": 2,
+        }
+        tx = block["transactions"][0]
+        tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": payload}]
+        tx["ops_proofs"] = [{"ChannelMultiSigProof": {"signatures": []}}]
+        content = BlockSerializer.model_validate(block).transactions[0].into_transaction().operations[0].content
+        assert content.type == "ChannelConfig"
+        assert content.parent == b"\x00" * 32
+
+    def test_legacy_db_rows_without_new_fields_still_load(self):
+        from models.transactions.operations.operation import Operation
+
+        legacy_config = Operation.model_validate(
+            {
+                "content": {
+                    "type": "ChannelConfig",
+                    "channel": "ab" * 32,
+                    "keys": [],
+                    "posting_timeframe": 1,
+                    "posting_timeout": 1,
+                    "configuration_threshold": 1,
+                    "transfer_threshold": 1,
+                },
+                "proof": {"type": "ChannelMultiSig", "signatures": []},
+            }
+        )
+        assert legacy_config.content.parent is None
+
+        legacy_declare = Operation.model_validate(
+            {
+                "content": {
+                    "type": "SDPDeclare",
+                    "service_type": "BN",
+                    "locators": [],
+                    "provider_id": "aa" * 32,
+                    "zk_id": "bb" * 32,
+                    "locked_note_id": "cc" * 32,
+                },
+                "proof": {"type": "Zk", "signature": "00"},
+            }
+        )
+        assert legacy_declare.content.service_note_id == bytes.fromhex("cc" * 32)

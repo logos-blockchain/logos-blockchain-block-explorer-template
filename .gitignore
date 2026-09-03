@@ -6,3 +6,4 @@ sqlite.db
 .env
 uv.lock
 node_modules
+*.egg-info/

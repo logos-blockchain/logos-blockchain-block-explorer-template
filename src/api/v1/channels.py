@@ -1,145 +1,104 @@
+from http.client import BAD_REQUEST
+
 from fastapi import Query
 from starlette.responses import JSONResponse, Response
 
 from core.api import NBERequest
+from db.channels import ChannelOperationRow
 
-# Content types that belong to a channel. ChannelSetKeys/ChannelBlob are
-# legacy (pre-0.2.x) types kept so old rows still show up.
-CHANNEL_CONTENT_TYPES = {
-    "ChannelInscribe",
-    "ChannelConfig",
-    "ChannelDeposit",
-    "ChannelWithdraw",
-    "ChannelTransfer",
-    "ChannelSetKeys",
-    "ChannelBlob",
-}
-
-# Channel activity is aggregated in Python from the operations JSON of recent
-# transactions; this caps how many transactions are scanned per request.
-SCAN_TRANSACTION_LIMIT = 2000
+CHANNEL_ID_BYTES = 32
 
 
-def _channel_id_of(content) -> str | None:
-    channel = getattr(content, "channel_id", None)
-    if channel is None:
-        channel = getattr(content, "channel", None)
-    if channel is None:
+def _parse_channel_id(raw: str) -> bytes | None:
+    cleaned = raw.strip().lower().removeprefix("0x")
+    try:
+        channel_id = bytes.fromhex(cleaned)
+    except ValueError:
         return None
-    return channel.hex() if isinstance(channel, bytes) else str(channel)
+    return channel_id if len(channel_id) == CHANNEL_ID_BYTES else None
 
 
-def aggregate_channels(transactions_newest_first, limit: int, ops_limit: int) -> list[dict]:
-    """Group channel operations by channel id; top `limit` channels by op count."""
-    channels: dict[str, dict] = {}
-    for tx in transactions_newest_first:
-        for operation in tx.operations:
-            content = operation.content
-            if content.type not in CHANNEL_CONTENT_TYPES:
-                continue
-            channel_id = _channel_id_of(content)
-            if channel_id is None:
-                continue
-
-            channel = channels.setdefault(
-                channel_id,
-                {
-                    "channel_id": channel_id,
-                    "op_count": 0,
-                    "last_height": tx.block.height,
-                    "last_slot": tx.block.slot,
-                    "operations": [],
-                },
-            )
-            channel["op_count"] += 1
-            if len(channel["operations"]) < ops_limit:
-                channel["operations"].append(
-                    {
-                        "transaction_hash": tx.hash.hex(),
-                        "block_hash": tx.block.hash.hex(),
-                        "height": tx.block.height,
-                        "slot": tx.block.slot,
-                        "content": content.model_dump(mode="json"),
-                    }
-                )
-
-    return sorted(channels.values(), key=lambda ch: (-ch["op_count"], -ch["last_height"]))[:limit]
-
-
-def collect_channel_operations(transactions_oldest_first, channel_id: str) -> list[dict]:
-    """All operations for one channel, oldest-first, with a stable `index` per op.
-
-    Indices are relative to the scanned window (see SCAN_TRANSACTION_LIMIT), so
-    index 0 is the oldest operation the explorer still has in view.
-    """
-    wanted = channel_id.lower()
-    operations: list[dict] = []
-    for tx in transactions_oldest_first:
-        for operation in tx.operations:
-            content = operation.content
-            if content.type not in CHANNEL_CONTENT_TYPES:
-                continue
-            found = _channel_id_of(content)
-            if found is None or found.lower() != wanted:
-                continue
-            operations.append(
-                {
-                    "index": len(operations),
-                    "transaction_hash": tx.hash.hex(),
-                    "block_hash": tx.block.hash.hex(),
-                    "height": tx.block.height,
-                    "slot": tx.block.slot,
-                    "content": content.model_dump(mode="json"),
-                }
-            )
-    return operations
+def serialize_operation(row: ChannelOperationRow, *, index: int | None = None) -> dict | None:
+    """API shape for one indexed channel op; None if the row no longer matches its transaction."""
+    channel_op, transaction, block = row
+    if channel_op.op_index >= len(transaction.operations):
+        return None
+    content = transaction.operations[channel_op.op_index].content
+    payload = {
+        "transaction_hash": transaction.hash.hex(),
+        "block_hash": block.hash.hex(),
+        "height": block.height,
+        "slot": block.slot,
+        "content": content.model_dump(mode="json"),
+    }
+    if index is not None:
+        payload = {"index": index, **payload}
+    return payload
 
 
 async def get_channel(
     request: NBERequest,
     channel_id: str,
-    fork: int = Query(...),
     page: int = Query(0, ge=0),
     page_size: int = Query(25, ge=1, le=100, alias="page-size"),
 ) -> Response:
-    """One channel's operations, oldest-first, paginated."""
-    transactions = await request.app.state.transaction_repository.get_latest(
-        SCAN_TRANSACTION_LIMIT, fork=fork, ascending=True, preload_relationships=True
-    )
+    """One channel's operations across its whole history on the canonical chain, oldest-first, paginated.
 
-    operations = collect_channel_operations(transactions, channel_id)
-    start = page * page_size
+    `index` is the op's position in that history, so it is stable across pages
+    and refreshes (barring a reorg).
+    """
+    parsed = _parse_channel_id(channel_id)
+    if parsed is None:
+        return JSONResponse(
+            {"detail": f"channel_id must be {CHANNEL_ID_BYTES} bytes of hex ({CHANNEL_ID_BYTES * 2} characters)"},
+            status_code=BAD_REQUEST,
+        )
+
+    repository = request.app.state.channel_repository
+    op_count = await repository.count(parsed)
+    offset = page * page_size
+    rows = await repository.get_operations(parsed, newest_first=False, offset=offset, limit=page_size)
+
+    operations = []
+    for position, row in enumerate(rows):
+        serialized = serialize_operation(row, index=offset + position)
+        if serialized is not None:
+            operations.append(serialized)
 
     return JSONResponse(
         {
-            "channel_id": channel_id,
-            "op_count": len(operations),
+            "channel_id": parsed.hex(),
+            "op_count": op_count,
             "page": page,
             "page_size": page_size,
-            "operations": operations[start : start + page_size],
-            "scanned_transactions": len(transactions),
+            "operations": operations,
         }
     )
 
 
 async def list_channels(
     request: NBERequest,
-    fork: int = Query(...),
     limit: int = Query(8, ge=1, le=24),
     ops_limit: int = Query(25, ge=1, le=100, alias="ops-limit"),
 ) -> Response:
-    """Top channels by activity, each with its most recent operations."""
-    transactions = await request.app.state.transaction_repository.get_latest(
-        SCAN_TRANSACTION_LIMIT, fork=fork, ascending=True, preload_relationships=True
-    )
+    """Top channels by total activity on the canonical chain, each with its most recent operations."""
+    repository = request.app.state.channel_repository
+    top = await repository.list_top(limit=limit)
 
-    # get_latest(ascending=True) returns oldest-first; aggregate newest-first so
-    # per-channel operations accumulate newest-first.
-    top = aggregate_channels(reversed(transactions), limit=limit, ops_limit=ops_limit)
+    channels = []
+    for channel_id, op_count, _last_height in top:
+        rows = await repository.get_operations(channel_id, newest_first=True, limit=ops_limit)
+        operations = [op for op in (serialize_operation(row) for row in rows) if op is not None]
+        if not operations:
+            continue
+        channels.append(
+            {
+                "channel_id": channel_id.hex(),
+                "op_count": op_count,
+                "last_height": operations[0]["height"],
+                "last_slot": operations[0]["slot"],
+                "operations": operations,
+            }
+        )
 
-    return JSONResponse(
-        {
-            "channels": top,
-            "scanned_transactions": len(transactions),
-        }
-    )
+    return JSONResponse({"channels": channels})

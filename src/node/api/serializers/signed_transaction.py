@@ -1,6 +1,4 @@
-import hashlib
-import json
-from typing import List, Self
+from typing import List
 
 from pydantic import Field
 
@@ -12,6 +10,7 @@ from node.api.serializers.operation import (
     ChannelInscribeOpSerializer,
     ChannelTransferOpSerializer,
     ChannelWithdrawOpSerializer,
+    ClaimPowRewardOpSerializer,
     LeaderClaimOpSerializer,
     LedgerOpSerializer,
     SDPActiveOpSerializer,
@@ -22,6 +21,7 @@ from node.api.serializers.operation import (
 from node.api.serializers.proof import (
     ChannelMultiSigProofSerializer,
     Ed25519SignatureSerializer,
+    NoneProofSerializer,
     OperationProofSerializerField,
     PoCProofSerializer,
     UnknownProofSerializer,
@@ -29,7 +29,6 @@ from node.api.serializers.proof import (
     ZkSignatureSerializer,
 )
 from node.api.serializers.transaction import TransactionSerializer
-from utils.protocols import FromRandom
 
 
 def _proof_to_internal(proof) -> dict:
@@ -52,6 +51,8 @@ def _proof_to_internal(proof) -> dict:
                 {"signature": s.signature, "channel_key_index": s.channel_key_index} for s in proof.signatures
             ],
         }
+    if isinstance(proof, NoneProofSerializer):
+        return {"type": "None"}
     if isinstance(proof, UnknownProofSerializer):
         return {"type": "Unknown", "raw": proof.raw}
     raise ValueError(f"Unsupported proof type: {type(proof).__name__}")
@@ -68,6 +69,7 @@ def _op_to_content(op) -> dict:
         return {
             "type": "ChannelConfig",
             "channel": op.channel,
+            "parent": op.parent,
             "keys": list(op.keys),
             "posting_timeframe": op.posting_timeframe,
             "posting_timeout": op.posting_timeout,
@@ -109,14 +111,14 @@ def _op_to_content(op) -> dict:
             "locators": list(op.locators),
             "provider_id": op.provider_id,
             "zk_id": op.zk_id,
-            "locked_note_id": op.locked_note_id,
+            "service_note_id": op.service_note_id,
         }
     if isinstance(op, SDPWithdrawOpSerializer):
         return {
             "type": "SDPWithdraw",
             "declaration_id": op.declaration_id,
             "nonce": op.nonce,
-            "locked_note_id": op.locked_note_id,
+            "service_note_id": op.service_note_id,
         }
     if isinstance(op, SDPActiveOpSerializer):
         return {
@@ -132,6 +134,13 @@ def _op_to_content(op) -> dict:
             "voucher_nullifier": op.voucher_nullifier,
             "pk": op.pk,
         }
+    if isinstance(op, ClaimPowRewardOpSerializer):
+        return {
+            "type": "ClaimPowReward",
+            "epoch_nonce": op.epoch_nonce,
+            "block_hash": op.block_hash,
+            "public_key": op.public_key,
+        }
     if isinstance(op, UnknownOpSerializer):
         return {
             "type": "UnknownOp",
@@ -141,29 +150,18 @@ def _op_to_content(op) -> dict:
     raise ValueError(f"Unsupported mantle op type: {type(op).__name__}")
 
 
-class SignedTransactionSerializer(NbeSerializer, FromRandom):
+class SignedTransactionSerializer(NbeSerializer):
     transaction: TransactionSerializer = Field(alias="mantle_tx", description="Transaction.")
     operations_proofs: List[OperationProofSerializerField] = Field(
         alias="ops_proofs",
         description="List of OperationProof. Order should match `Self::transaction::ops`.",
     )
 
-    def _compute_hash(self) -> bytes:
-        # Prefer the canonical hash reported by the node (newer nodes include it
-        # in mantle_tx). A locally computed JSON hash will NOT match the chain's
-        # real tx hash, so it is only a last-resort fallback for older nodes.
-        if self.transaction.hash is not None:
-            return self.transaction.hash
-        data = self.transaction.model_dump(mode="json", exclude={"hash"})
-        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode()).digest()
-
     def into_transaction(self) -> Transaction:
         ops = self.transaction.ops
         if len(ops) != len(self.operations_proofs):
             raise ValueError(
-                f"Number of ops ({len(ops)}) does not match number of op proofs "
-                f"({len(self.operations_proofs)})."
+                f"Number of ops ({len(ops)}) does not match number of op proofs " f"({len(self.operations_proofs)})."
             )
 
         operations: List[dict] = [
@@ -173,20 +171,7 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
 
         return Transaction.model_validate(
             {
-                "hash": self._compute_hash(),
+                "hash": self.transaction.hash,
                 "operations": operations,
-                "execution_gas_price": self.transaction.execution_gas_price,
-                "storage_gas_price": self.transaction.storage_gas_price,
-            }
-        )
-
-    @classmethod
-    def from_random(cls) -> Self:
-        transaction = TransactionSerializer.from_random()
-        operations_proofs = [ZkSignatureSerializer.from_random() for _ in range(len(transaction.ops))]
-        return cls.model_validate(
-            {
-                "mantle_tx": transaction,
-                "ops_proofs": operations_proofs,
             }
         )

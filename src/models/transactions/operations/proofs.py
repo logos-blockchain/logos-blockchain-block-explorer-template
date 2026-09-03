@@ -1,16 +1,7 @@
-from enum import Enum
 from typing import Any, Literal, Optional
 
 from core.models import NbeSchema
 from core.types import HexBytes
-
-
-class SignatureType(Enum):
-    ED25519 = "Ed25519"
-    ZK = "Zk"
-    ZK_AND_ED25519 = "ZkAndEd25519"
-    POC = "PoC"
-    CHANNEL_MULTI_SIG = "ChannelMultiSig"
 
 
 class NbeSignature(NbeSchema):
@@ -48,6 +39,12 @@ class ChannelMultiSignature(NbeSignature):
     signatures: list[IndexedSignature]
 
 
+class NoneProof(NbeSignature):
+    """Ops that require no proof (e.g. ClaimPowReward)."""
+
+    type: Literal["None"] = "None"
+
+
 class UnknownSignature(NbeSignature):
     """Fallback for proof variants without a typed model (same approach as #19).
 
@@ -60,5 +57,11 @@ class UnknownSignature(NbeSignature):
 
 
 OperationProof = (
-    Ed25519Signature | ZkSignature | ZkAndEd25519Signature | PoCSignature | ChannelMultiSignature | UnknownSignature
+    Ed25519Signature
+    | ZkSignature
+    | ZkAndEd25519Signature
+    | PoCSignature
+    | ChannelMultiSignature
+    | NoneProof
+    | UnknownSignature
 )

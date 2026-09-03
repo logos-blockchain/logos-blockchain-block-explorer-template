@@ -7,6 +7,7 @@ import HomePage from './pages/Home.js';
 import BlockDetailPage from './pages/BlockDetail.js';
 import TransactionDetailPage from './pages/TransactionDetail.js';
 import ChannelDetailPage from './pages/ChannelDetail.js';
+import NoteSearchPage from './pages/NoteSearch.js';
 
 const ROOT = document.getElementById('app');
 
@@ -49,6 +50,11 @@ const ROUTES = [
         name: 'transactionDetail',
         re: /^\/transactions\/([^/]+)$/,
         view: ({ parameters }) => h(AppShell, null, h(TransactionDetailPage, { parameters })),
+    },
+    {
+        name: 'noteSearch',
+        re: /^\/notes\/([^/]+)$/,
+        view: ({ parameters }) => h(AppShell, null, h(NoteSearchPage, { parameters })),
     },
     {
         name: 'channelDetail',

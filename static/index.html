@@ -10,24 +10,18 @@
         <!-- Styles -->
         <link rel="stylesheet" href="static/styles.css" />
 
-        <!-- Speed up first connection to ESM CDN -->
-        <link rel="dns-prefetch" href="https://esm.sh" />
-        <link rel="preconnect" href="https://esm.sh" crossorigin />
-
-        <!-- Import map must appear BEFORE any modulepreload that relies on it -->
+        <!-- Preact is vendored (static/vendor/preact); the import map must precede any modulepreload -->
         <script type="importmap">
             {
                 "imports": {
-                    "preact": "https://esm.sh/preact@10.22.0",
-                    "preact/hooks": "https://esm.sh/preact@10.22.0/hooks"
+                    "preact": "./static/vendor/preact/preact.module.js",
+                    "preact/hooks": "./static/vendor/preact/hooks.module.js"
                 }
             }
         </script>
-
-        <!-- Safe to preload after the import map -->
+        <link rel="modulepreload" href="static/vendor/preact/preact.module.js" />
+        <link rel="modulepreload" href="static/vendor/preact/hooks.module.js" />
         <link rel="modulepreload" href="static/app.js" />
-        <link rel="modulepreload" href="https://esm.sh/preact@10.22.0" crossorigin />
-        <link rel="modulepreload" href="https://esm.sh/preact@10.22.0/hooks" crossorigin />
     </head>
     <body>
         <div id="app"></div>
