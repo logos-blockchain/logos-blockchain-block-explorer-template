@@ -45,14 +45,15 @@ def chain(n: int) -> Dict[str, dict]:
 
 
 class FakeNodeApi:
-    def __init__(self, blocks: Dict[str, dict], stream_sessions: List[List[str]] | None = None):
+    def __init__(self, blocks: Dict[str, dict], stream_sessions: List[List[str]] | None = None, lib_slot: int = 0):
         self.blocks = blocks
         self.stream_sessions = list(stream_sessions or [])
         self.fetches: List[str] = []
+        self.lib_slot = lib_slot
 
     async def get_info(self):
         tip = max(self.blocks.values(), key=lambda payload: payload["header"]["slot"])["header"]["id"]
-        return SimpleNamespace(lib=tip, tip=tip, slot=len(self.blocks), height=len(self.blocks))
+        return SimpleNamespace(lib=tip, tip=tip, slot=len(self.blocks), height=len(self.blocks), lib_slot=self.lib_slot)
 
     async def get_block_by_hash(self, block_hash: str):
         self.fetches.append(block_hash)
@@ -103,6 +104,21 @@ def test_backfill_stores_referenced_uncles_including_uncle_chains(app):
     assert stored_heights(app) == list(range(1, 6))  # canonical chain unaffected
     assert (stored(app, "a1" * 32).height, stored(app, "a1" * 32).canonical) == (3, False)
     assert (stored(app, "a2" * 32).height, stored(app, "a2" * 32).canonical) == (4, False)
+
+
+def test_uncles_below_lib_are_not_probed(app):
+    # The node prunes non-canonical blocks behind the LIB, so asking for them is pointless.
+    blocks = chain(5)
+    old_uncle = block_payload("a1" * 32, "01" * 32, 2)  # slot 2, below LIB
+    new_uncle = block_payload("a2" * 32, "03" * 32, 4)  # slot 4, at/above LIB
+    blocks["05" * 32] = block_payload("05" * 32, "04" * 32, 5, uncles=[old_uncle, new_uncle])
+    blocks["a2" * 32] = new_uncle  # the node still has the recent one, and has pruned the old one
+    app.state.node_api = FakeNodeApi(blocks, lib_slot=4)
+
+    asyncio.run(lifespan.backfill_to_lib(app))
+
+    assert "a1" * 32 not in app.state.node_api.fetches
+    assert stored(app, "a2" * 32).canonical is False
 
 
 def test_streamed_block_backfills_its_uncles(app):
