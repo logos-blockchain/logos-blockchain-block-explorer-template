@@ -129,7 +129,7 @@ def test_list_counts_whole_history_and_keeps_old_channels(blocks, request_for):
     recent = [[make_tx(500 + i, [inscribe(CH_B)])] for i in range(2)]  # 2 ops on B
     build_chain(blocks, early + quiet + recent)
 
-    payload = loads(asyncio.run(list_channels(request_for, fork=0, limit=8, ops_limit=3)).body)
+    payload = loads(asyncio.run(list_channels(request_for, limit=8, ops_limit=3)).body)
 
     by_id = {ch["channel_id"]: ch for ch in payload["channels"]}
     assert [ch["channel_id"] for ch in payload["channels"]] == [CH_A.hex(), CH_B.hex()]
@@ -147,7 +147,7 @@ def test_list_respects_limit_and_ties_break_by_recency(blocks, request_for):
         blocks, [[make_tx(1, [inscribe(CH_A)])], [make_tx(2, [inscribe(CH_B)])], [make_tx(3, [inscribe(CH_C)])]]
     )
 
-    payload = loads(asyncio.run(list_channels(request_for, fork=0, limit=2, ops_limit=25)).body)
+    payload = loads(asyncio.run(list_channels(request_for, limit=2, ops_limit=25)).body)
 
     assert [ch["channel_id"] for ch in payload["channels"]] == [CH_C.hex(), CH_B.hex()]
 
@@ -155,7 +155,7 @@ def test_list_respects_limit_and_ties_break_by_recency(blocks, request_for):
 def test_get_channel_paginates_with_stable_indices(blocks, request_for):
     build_chain(blocks, [[make_tx(i, [inscribe(CH_A, bytes([i]))])] for i in range(1, 6)])
 
-    page1 = loads(asyncio.run(get_channel(request_for, CH_A.hex(), fork=0, page=1, page_size=2)).body)
+    page1 = loads(asyncio.run(get_channel(request_for, CH_A.hex(), page=1, page_size=2)).body)
 
     assert page1["op_count"] == 5
     assert page1["page"] == 1
@@ -163,7 +163,7 @@ def test_get_channel_paginates_with_stable_indices(blocks, request_for):
     assert [op["height"] for op in page1["operations"]] == [4, 5]
     assert [op["content"]["inscription"] for op in page1["operations"]] == ["03", "04"]
 
-    last = loads(asyncio.run(get_channel(request_for, CH_A.hex(), fork=0, page=2, page_size=2)).body)
+    last = loads(asyncio.run(get_channel(request_for, CH_A.hex(), page=2, page_size=2)).body)
     assert [op["index"] for op in last["operations"]] == [4]
 
 
@@ -174,7 +174,7 @@ def test_get_channel_orders_ops_within_a_block(blocks, request_for):
         [[make_tx(1, [inscribe(CH_A, b"a0"), transfer(), inscribe(CH_A, b"a2")]), make_tx(2, [inscribe(CH_A, b"b0")])]],
     )
 
-    payload = loads(asyncio.run(get_channel(request_for, CH_A.hex(), fork=0, page=0, page_size=25)).body)
+    payload = loads(asyncio.run(get_channel(request_for, CH_A.hex(), page=0, page_size=25)).body)
 
     assert [bytes.fromhex(op["content"]["inscription"]) for op in payload["operations"]] == [b"a0", b"a2", b"b0"]
 
@@ -182,37 +182,41 @@ def test_get_channel_orders_ops_within_a_block(blocks, request_for):
 def test_get_channel_accepts_uppercase_and_0x_prefix(blocks, request_for):
     build_chain(blocks, [[make_tx(1, [inscribe(CH_A)])]])
 
-    payload = loads(asyncio.run(get_channel(request_for, "0x" + CH_A.hex().upper(), fork=0, page=0, page_size=25)).body)
+    payload = loads(asyncio.run(get_channel(request_for, "0x" + CH_A.hex().upper(), page=0, page_size=25)).body)
 
     assert payload["channel_id"] == CH_A.hex()
     assert payload["op_count"] == 1
 
 
 def test_get_channel_rejects_malformed_id(request_for):
-    response = asyncio.run(get_channel(request_for, "not-hex", fork=0, page=0, page_size=25))
+    response = asyncio.run(get_channel(request_for, "not-hex", page=0, page_size=25))
     assert response.status_code == 400
 
 
-def test_channels_follow_the_fork_chain(blocks, request_for):
-    # Fork at height 2: fork 0 continues with an op on CH_A, fork 1 with an op on CH_B.
-    build_chain(blocks, [[make_tx(1, [inscribe(CH_A)])]])  # genesis(1) -> block 2
+def test_channels_follow_the_canonical_chain(blocks, request_for):
+    build_chain(blocks, [[make_tx(1, [inscribe(CH_A)])]])  # genesis(1) <- block 2 (height 2)
     asyncio.run(
         blocks.create(
             [make_block(block_hash(3), parent=block_hash(2), slot=20, transactions=[make_tx(2, [inscribe(CH_A)])])]
         )
     )
+    # A same-height sibling with a CH_B op is not canonical, so it does not count.
     asyncio.run(
         blocks.create(
             [make_block(block_hash(4), parent=block_hash(2), slot=21, transactions=[make_tx(3, [inscribe(CH_B)])])]
         )
     )
+    payload = loads(asyncio.run(list_channels(request_for, limit=8, ops_limit=25)).body)
+    assert {ch["channel_id"]: ch["op_count"] for ch in payload["channels"]} == {CH_A.hex(): 2}
 
-    fork0 = loads(asyncio.run(list_channels(request_for, fork=0, limit=8, ops_limit=25)).body)
-    fork1 = loads(asyncio.run(list_channels(request_for, fork=1, limit=8, ops_limit=25)).body)
-
-    assert {ch["channel_id"]: ch["op_count"] for ch in fork0["channels"]} == {CH_A.hex(): 2}
-    # Fork 1 shares the ancestor op on CH_A but not the fork-0 tip's op.
-    assert {ch["channel_id"]: ch["op_count"] for ch in fork1["channels"]} == {CH_A.hex(): 1, CH_B.hex(): 1}
+    # Extending the sibling branch makes it the longest chain: block 3's op drops out, CH_B's ops appear.
+    asyncio.run(
+        blocks.create(
+            [make_block(block_hash(5), parent=block_hash(4), slot=22, transactions=[make_tx(4, [inscribe(CH_B)])])]
+        )
+    )
+    payload = loads(asyncio.run(list_channels(request_for, limit=8, ops_limit=25)).body)
+    assert {ch["channel_id"]: ch["op_count"] for ch in payload["channels"]} == {CH_B.hex(): 2, CH_A.hex(): 1}
 
 
 def test_backfill_indexes_only_unindexed_transactions(client, blocks, channels):
@@ -238,4 +242,4 @@ def test_backfill_from_empty_index(client, blocks, channels):
         session.commit()
 
     assert asyncio.run(channels.backfill(batch_size=1)) == 2
-    assert asyncio.run(channels.count(CH_A, fork=0)) == 2
+    assert asyncio.run(channels.count(CH_A)) == 2

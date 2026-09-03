@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, List
 from db.blocks import BlockRepository
 from db.channels import ChannelOperationRepository
 from db.clients import SqliteClient
+from core.notifier import ChainNotifier
 from db.transaction import TransactionRepository
 from models.block import Block
 from node.api.http import HttpNodeApi
@@ -87,6 +88,7 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
         last_slot = batch[-1].slot
         # allow_chain_root true only on first iteration
         await app.state.block_repository.create(list(batch), allow_chain_root=(idx == 0))
+        await app.state.chain_notifier.publish()
         logger.info(f"Backfilled {len(batch)} blocks (slots {first_slot} to {last_slot})")
 
 
@@ -99,8 +101,13 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
     app.state.block_repository = BlockRepository(db_client)
     app.state.transaction_repository = TransactionRepository(db_client)
     app.state.channel_repository = ChannelOperationRepository(db_client)
+    app.state.chain_notifier = ChainNotifier()
 
     try:
+        if db_client.needs_canonical_rebuild:
+            length = await app.state.block_repository.rebuild_canonical_chain()
+            logger.info(f"Computed canonical flags for an existing database: chain length {length}.")
+
         # Index channel ops for transactions stored before the channel index existed
         indexed = await app.state.channel_repository.backfill()
         if indexed:
@@ -167,6 +174,7 @@ async def subscribe_to_new_blocks(app: "NBE"):
 
                 # Now we have the parent, store the block
                 await app.state.block_repository.create([block])
+                await app.state.chain_notifier.publish()
                 logger.debug(f"Stored block at slot {block_slot}")
 
             except Exception as error:

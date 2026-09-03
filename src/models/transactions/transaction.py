@@ -19,8 +19,8 @@ class Transaction(IdNbeModel, table=True):
 
     # --- Columns --- #
 
-    block_id: Optional[int] = Field(default=None, foreign_key="block.id", nullable=False)
-    hash: HexBytes = Field(nullable=False)
+    block_id: Optional[int] = Field(default=None, foreign_key="block.id", nullable=False, index=True)
+    hash: HexBytes = Field(nullable=False, index=True)
     operations: List[Operation] = Field(
         default_factory=list, sa_column=Column(PydanticJsonColumn(Operation, many=True), nullable=False)
     )

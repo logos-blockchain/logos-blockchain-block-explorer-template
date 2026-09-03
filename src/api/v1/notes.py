@@ -72,7 +72,6 @@ def _parse_note_id(raw: str) -> bytes | None:
 async def search(
     request: NBERequest,
     note_id: str,
-    fork: int = Query(...),
     limit: int = Query(50, ge=1, le=200),
 ) -> Response:
     """Transactions containing an operation that references the note id, newest first."""
@@ -83,7 +82,7 @@ async def search(
             status_code=BAD_REQUEST,
         )
 
-    candidates = await request.app.state.transaction_repository.search_by_note_id(note, fork=fork, limit=limit)
+    candidates = await request.app.state.transaction_repository.search_by_note_id(note, limit=limit)
 
     results = []
     for transaction in candidates:

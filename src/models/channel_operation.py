@@ -36,8 +36,8 @@ class ChannelOperation(IdNbeModel, table=True):
     Channel activity used to be aggregated on every request from the JSON of
     the most recent N transactions, which mis-counted long-lived channels and
     dropped any channel whose activity fell outside the window. This table is
-    written in the same commit as its block, so counts are exact and the
-    fork-chain CTE can filter out orphaned blocks at query time.
+    written in the same commit as its block, so counts are exact and queries
+    can restrict to canonical blocks.
     """
 
     __tablename__ = "channel_operation"

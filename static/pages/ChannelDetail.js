@@ -3,7 +3,6 @@ import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
-import { subscribeFork } from '../lib/fork.js';
 import { summarize, OP_LABELS } from '../lib/channels.js';
 import { fieldLabel, tryDecodeUtf8Hex } from '../lib/format.js';
 import { FieldValue } from '../components/Common.js';
@@ -120,13 +119,8 @@ export default function ChannelDetail({ parameters }) {
 
     const [data, setData] = useState(null);
     const [err, setErr] = useState(null);
-    const [fork, setFork] = useState(null);
     const [page, setPage] = useState(0);
     const [highlightIndex, setHighlightIndex] = useState(null);
-
-    useEffect(() => {
-        return subscribeFork((newFork) => setFork(newFork));
-    }, []);
 
     const pageTitle = useMemo(() => `Channel ${shortenHex(channelId)}`, [channelId]);
     useEffect(() => {
@@ -140,14 +134,13 @@ export default function ChannelDetail({ parameters }) {
             setErr({ kind: 'invalid', msg: 'Invalid channel id.' });
             return;
         }
-        if (fork == null) return;
 
         let alive = true;
         const controller = new AbortController();
 
         (async () => {
             try {
-                const res = await fetch(API.CHANNEL_DETAIL_BY_ID(channelId, fork, page, PAGE_SIZE), {
+                const res = await fetch(API.CHANNEL_DETAIL_BY_ID(channelId, page, PAGE_SIZE), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
@@ -165,7 +158,7 @@ export default function ChannelDetail({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [channelId, isValidId, fork, page]);
+    }, [channelId, isValidId, page]);
 
     const opCount = data?.op_count ?? 0;
     const pageCount = Math.max(1, Math.ceil(opCount / PAGE_SIZE));
@@ -204,12 +197,11 @@ export default function ChannelDetail({ parameters }) {
                 h(
                     'div',
                     { class: 'channel-detail-scan-note' },
-                    'Operations are indexed oldest-first across the channel’s full history on this fork.',
+                    'Operations are indexed oldest-first across the channel’s full history.',
                 ),
                 h(JumpToOp, { opCount, onJump: jumpTo }),
 
-                opCount === 0 &&
-                    h('div', { class: 'channels-empty' }, 'No operations found for this channel on this fork.'),
+                opCount === 0 && h('div', { class: 'channels-empty' }, 'No operations found for this channel.'),
 
                 opCount > 0 &&
                     h(

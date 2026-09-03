@@ -4,7 +4,6 @@ import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
-import { subscribeFork } from '../lib/fork.js';
 import NoteSearchBar from '../components/NoteSearchBar.js';
 
 function MatchTag({ match }) {
@@ -59,11 +58,6 @@ export default function NoteSearch({ parameters }) {
 
     const [data, setData] = useState(null);
     const [err, setErr] = useState(null);
-    const [fork, setFork] = useState(null);
-
-    useEffect(() => {
-        return subscribeFork((newFork) => setFork(newFork));
-    }, []);
 
     const pageTitle = useMemo(() => `Note ${shortenHex(noteId)}`, [noteId]);
     useEffect(() => {
@@ -78,14 +72,13 @@ export default function NoteSearch({ parameters }) {
             setErr({ kind: 'invalid', msg: 'Invalid note id.' });
             return;
         }
-        if (fork == null) return;
 
         let alive = true;
         const controller = new AbortController();
 
         (async () => {
             try {
-                const res = await fetch(API.NOTE_SEARCH(noteId, fork), {
+                const res = await fetch(API.NOTE_SEARCH(noteId), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
@@ -108,7 +101,7 @@ export default function NoteSearch({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [noteId, isValidId, fork]);
+    }, [noteId, isValidId]);
 
     return h(
         'main',
@@ -138,12 +131,7 @@ export default function NoteSearch({ parameters }) {
                     h('span', { class: 'pill mono', style: 'overflow-wrap:anywhere;' }, data.note_id),
                     h('span', { class: 'channel-count' }, `${data.count} transaction${data.count === 1 ? '' : 's'}`),
                 ),
-                data.count === 0 &&
-                    h(
-                        'div',
-                        { class: 'channels-empty' },
-                        'No transactions reference this note id on the current fork.',
-                    ),
+                data.count === 0 && h('div', { class: 'channels-empty' }, 'No transactions reference this note id.'),
                 data.count > 0 &&
                     h(
                         'div',

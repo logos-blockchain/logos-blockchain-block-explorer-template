@@ -11,6 +11,7 @@ from core.authentication import Authentication
 from db.blocks import BlockRepository
 from db.channels import ChannelOperationRepository
 from db.clients import DbClient
+from core.notifier import ChainNotifier
 from db.transaction import TransactionRepository
 from node.api.http import HttpNodeApi
 
@@ -47,6 +48,7 @@ class NBEState(State):
     block_repository: BlockRepository
     transaction_repository: TransactionRepository
     channel_repository: ChannelOperationRepository
+    chain_notifier: ChainNotifier
     subscription_to_updates_handle: Task
 
     @property

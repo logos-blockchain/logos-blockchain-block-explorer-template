@@ -1,9 +1,8 @@
 import logging
-from asyncio import sleep
-from typing import AsyncIterator, Dict, List, Optional
-from sqlalchemy import Result, Select, func as sa_func
-from sqlalchemy.orm import aliased
-from sqlmodel import select
+from typing import Dict, List, Optional
+
+from sqlalchemy import Result, func as sa_func, update
+from sqlmodel import Session, select
 
 from db.clients import DbClient
 from models.block import Block
@@ -12,46 +11,16 @@ from models.channel_operation import channel_operations_for_blocks
 logger = logging.getLogger(__name__)
 
 
-def chain_block_ids_cte(*, fork: int):
-    """
-    Recursive CTE that collects all block IDs on the chain from the tip
-    of the given fork back to genesis, following parent_block links.
-
-    This correctly traverses across fork boundaries — e.g. if fork 1 diverged
-    from fork 0 at height 50, the CTE returns fork 1 blocks (50+) AND the
-    ancestor fork 0 blocks (0–49).
-    """
-    tip_hash = select(Block.hash).where(Block.fork == fork).order_by(Block.height.desc()).limit(1).scalar_subquery()
-
-    base = select(Block.id, Block.hash, Block.parent_block).where(Block.hash == tip_hash)
-    cte = base.cte(name="chain", recursive=True)
-
-    recursive = select(Block.id, Block.hash, Block.parent_block).where(Block.hash == cte.c.parent_block)
-    return cte.union_all(recursive)
-
-
-def get_latest_statement(limit: int, *, fork: int, output_ascending: bool = True) -> Select:
-    chain = chain_block_ids_cte(fork=fork)
-    base = select(Block).join(chain, Block.id == chain.c.id).order_by(Block.height.desc()).limit(limit)
-    if not output_ascending:
-        return base
-
-    # Reorder for output
-    inner = base.subquery()
-    latest = aliased(Block, inner)
-    return select(latest).options().order_by(latest.height.asc())  # type: ignore[arg-type]
-
-
 class BlockRepository:
     def __init__(self, client: DbClient):
         self.client = client
 
     async def create(self, blocks: List[Block], allow_chain_root: bool = False) -> None:
         """
-        Insert blocks into the database with proper height calculation.
+        Insert blocks, assign heights from their parents, and extend the canonical chain.
 
         Args:
-            blocks: Blocks to insert
+            blocks: Blocks to insert. Blocks already stored (by hash) are skipped.
             allow_chain_root: If True, allow the first block (by slot) to be a chain root
                              even if its parent doesn't exist. Used during chain-walk backfills.
         """
@@ -59,16 +28,22 @@ class BlockRepository:
             return
 
         with self.client.session() as session:
+            # The live stream can deliver a block that a chain-walk backfill has
+            # just inserted; skip anything we already have.
+            already_stored = set(session.exec(select(Block.hash).where(Block.hash.in_([b.hash for b in blocks]))).all())
+            blocks = [block for block in blocks if block.hash not in already_stored]
+            if not blocks:
+                return
+
             # Collect all unique parent hashes we need to look up
             parent_hashes = {block.parent_block for block in blocks}
 
             # Fetch existing parent blocks to get their heights
             parent_heights: Dict[bytes, int] = {}
             if parent_hashes:
-                statement = select(Block).where(Block.hash.in_(parent_hashes))
-                existing_parents = session.exec(statement).all()
-                for parent in existing_parents:
-                    parent_heights[parent.hash] = parent.height
+                statement = select(Block.hash, Block.height).where(Block.hash.in_(parent_hashes))
+                for parent_hash, parent_height in session.exec(statement).all():
+                    parent_heights[parent_hash] = parent_height
 
             # Also check if any of the blocks we're inserting are parents of others
             blocks_by_hash = {block.hash: block for block in blocks}
@@ -156,63 +131,37 @@ class BlockRepository:
 
             # Only add resolved blocks
             blocks_to_add = [block for block in blocks if block.hash in resolved]
+            if not blocks_to_add:
+                return
 
-            # --- Fork assignment ---
-            if blocks_to_add:
-                # Build lookup of parent_block -> fork for parents already in DB
-                parent_forks: Dict[bytes, int] = {}
-                if parent_hashes:
-                    stmt = select(Block.hash, Block.fork).where(Block.hash.in_(parent_hashes))
-                    for phash, pfork in session.exec(stmt).all():
-                        parent_forks[phash] = pfork
+            session.add_all(blocks_to_add)
+            # Flush so blocks/transactions get ids, then index channel ops in
+            # the same commit so the index can never drift from the chain.
+            session.flush()
+            session.add_all(channel_operations_for_blocks(blocks_to_add))
 
-                # Also include fork info from blocks in this batch that are parents
-                for block in blocks_to_add:
-                    if block.hash in parent_hashes:
-                        parent_forks[block.hash] = block.fork
+            # Longest chain wins; on a tie the current chain stays canonical.
+            candidate = max(blocks_to_add, key=lambda b: b.height)
+            current_tip_height = session.exec(select(sa_func.max(Block.height)).where(Block.canonical)).one()
+            if current_tip_height is None or candidate.height > current_tip_height:
+                _switch_canonical_chain(session, candidate)
 
-                # Find which parents already have children in the DB
-                parent_hashes_in_batch = {b.parent_block for b in blocks_to_add}
-                parents_with_children: set[bytes] = set()
-                if parent_hashes_in_batch:
-                    stmt = select(Block.parent_block).where(Block.parent_block.in_(parent_hashes_in_batch)).distinct()
-                    for ph in session.exec(stmt).all():
-                        parents_with_children.add(ph)
+            session.commit()
 
-                # Get current max fork across the whole DB
-                max_fork_result = session.exec(select(sa_func.max(Block.fork))).one_or_none()
-                next_fork = (max_fork_result or 0) + 1
+    async def rebuild_canonical_chain(self) -> int:
+        """Recompute the canonical flags from scratch; returns the canonical chain length.
 
-                # Also account for forks assigned within this batch
-                batch_children_count: Dict[bytes, int] = {}
-
-                for block in blocks_to_add:
-                    parent = block.parent_block
-                    already_has_child_in_db = parent in parents_with_children
-                    children_assigned_in_batch = batch_children_count.get(parent, 0)
-
-                    if already_has_child_in_db or children_assigned_in_batch > 0:
-                        # Another block with the same parent exists -> new fork
-                        block.fork = next_fork
-                        next_fork += 1
-                    elif parent in parent_forks:
-                        # No sibling -> inherit parent's fork
-                        block.fork = parent_forks[parent]
-                    else:
-                        # Genesis / chain root with no parent -> fork 0
-                        block.fork = 0
-
-                    batch_children_count[parent] = children_assigned_in_batch + 1
-                    # Make this block's fork available for its children in the batch
-                    parent_forks[block.hash] = block.fork
-
-            if blocks_to_add:
-                session.add_all(blocks_to_add)
-                # Flush so blocks/transactions get ids, then index channel ops in
-                # the same commit so the index can never drift from the chain.
-                session.flush()
-                session.add_all(channel_operations_for_blocks(blocks_to_add))
-                session.commit()
+        Used once when a database predating the flag is opened. Walks parent
+        links from the highest block (lowest id breaks ties) down to the root.
+        """
+        with self.client.session() as session:
+            tip = session.exec(select(Block).order_by(Block.height.desc(), Block.id.asc()).limit(1)).first()
+            if tip is None:
+                return 0
+            session.exec(update(Block).values(canonical=False))
+            length = _switch_canonical_chain(session, tip)
+            session.commit()
+            return length
 
     async def get_by_hash(self, block_hash: bytes) -> Optional[Block]:
         statement = select(Block).where(Block.hash == block_hash)
@@ -221,62 +170,60 @@ class BlockRepository:
             result: Result[Block] = session.exec(statement)
             return result.one_or_none()
 
-    async def get_latest(self, limit: int, *, fork: int, ascending: bool = True) -> List[Block]:
+    async def get_latest(self, limit: int) -> List[Block]:
+        """The newest `limit` canonical blocks, oldest-first."""
         if limit == 0:
             return []
 
-        statement = get_latest_statement(limit, fork=fork, output_ascending=ascending)
-
+        statement = select(Block).where(Block.canonical).order_by(Block.height.desc()).limit(limit)
         with self.client.session() as session:
-            results: Result[Block] = session.exec(statement)
-            b = results.all()
-            return b
+            return list(reversed(session.exec(statement).all()))
 
-    async def get_fork_choice(self) -> Optional[int]:
-        """Return the fork number of the longest chain (block with max height)."""
-        statement = select(Block.fork).order_by(Block.height.desc()).limit(1)
+    async def get_since(self, block_id: int, *, limit: int = 500) -> List[Block]:
+        """Canonical blocks inserted after `block_id`, oldest-first. Drives the live stream."""
+        statement = select(Block).where(Block.canonical, Block.id > block_id).order_by(Block.id.asc()).limit(limit)
         with self.client.session() as session:
-            return session.exec(statement).one_or_none()
+            return session.exec(statement).all()
 
-    async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Block], int]:
-        """
-        Get blocks with pagination, ordered by height descending (newest first).
-        Follows the chain from the fork's tip back to genesis across fork boundaries.
-        Returns a tuple of (blocks, total_count).
-        """
+    async def get_paginated(self, page: int, page_size: int) -> tuple[List[Block], int]:
+        """Canonical blocks, newest first, plus the canonical chain length."""
         offset = page * page_size
-        chain = chain_block_ids_cte(fork=fork)
 
         with self.client.session() as session:
-            count_statement = select(sa_func.count()).select_from(chain)
-            total_count = session.exec(count_statement).one()
-
+            total_count = session.exec(select(sa_func.count()).select_from(Block).where(Block.canonical)).one()
             statement = (
-                select(Block)
-                .join(chain, Block.id == chain.c.id)
-                .order_by(Block.height.desc())
-                .offset(offset)
-                .limit(page_size)
+                select(Block).where(Block.canonical).order_by(Block.height.desc()).offset(offset).limit(page_size)
             )
             blocks = session.exec(statement).all()
 
         return blocks, total_count
 
-    async def updates_stream(
-        self, block_from: Optional[Block], *, fork: int, timeout_seconds: int = 1
-    ) -> AsyncIterator[List[Block]]:
-        height_cursor: int = block_from.height + 1 if block_from is not None else 0
 
-        while True:
-            statement = (
-                select(Block).where(Block.fork == fork, Block.height >= height_cursor).order_by(Block.height.asc())
-            )
+def _switch_canonical_chain(session: Session, tip: Block) -> int:
+    """Make the chain ending at `tip` canonical.
 
-            with self.client.session() as session:
-                blocks: List[Block] = session.exec(statement).all()
+    Walks parent links from `tip` until it reaches a block that is already
+    canonical (the common ancestor) or the root. Blocks on the old chain above
+    the ancestor are un-flagged, the walked path is flagged. Returns the number
+    of blocks flagged.
+    """
+    path_ids: List[int] = []
+    ancestor_height = 0
+    current: Optional[Block] = tip
+    while current is not None and not current.canonical:
+        path_ids.append(current.id)
+        current = session.exec(select(Block).where(Block.hash == current.parent_block)).first()
+    if current is not None:
+        ancestor_height = current.height
 
-            if len(blocks) > 0:
-                height_cursor = blocks[-1].height + 1
-                yield blocks
-            else:
-                await sleep(timeout_seconds)
+    if path_ids:
+        session.exec(update(Block).where(Block.canonical, Block.height > ancestor_height).values(canonical=False))
+        for start in range(0, len(path_ids), 500):
+            session.exec(update(Block).where(Block.id.in_(path_ids[start : start + 500])).values(canonical=True))
+        # Keep the in-memory objects consistent with what was just written.
+        for block in session.identity_map.values():
+            if isinstance(block, Block) and block.id in path_ids:
+                block.canonical = True
+    if len(path_ids) > 1:
+        logger.info(f"Canonical chain switched: {len(path_ids)} blocks above height {ancestor_height} now canonical")
+    return len(path_ids)

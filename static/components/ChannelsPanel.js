@@ -3,7 +3,6 @@ import { h } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { API, PAGE } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
-import { subscribeFork } from '../lib/fork.js';
 import { summarize, OP_LABELS } from '../lib/channels.js';
 
 const CHANNEL_LIMIT = 8;
@@ -70,20 +69,14 @@ function ChannelColumn({ channel }) {
 export default function ChannelsPanel() {
     const [channels, setChannels] = useState(null); // null = loading
     const [error, setError] = useState(null);
-    const [fork, setFork] = useState(null);
     const timerRef = useRef(null);
 
     useEffect(() => {
-        return subscribeFork((newFork) => setFork(newFork));
-    }, []);
-
-    useEffect(() => {
-        if (fork == null) return;
         let cancelled = false;
 
         const load = async () => {
             try {
-                const res = await fetch(API.CHANNELS_LIST(fork, CHANNEL_LIMIT, OPS_LIMIT), { cache: 'no-cache' });
+                const res = await fetch(API.CHANNELS_LIST(CHANNEL_LIMIT, OPS_LIMIT), { cache: 'no-cache' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 if (!cancelled) {
@@ -101,7 +94,7 @@ export default function ChannelsPanel() {
             cancelled = true;
             clearInterval(timerRef.current);
         };
-    }, [fork]);
+    }, []);
 
     return h(
         'section',
