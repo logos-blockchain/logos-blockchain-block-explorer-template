@@ -1,12 +1,9 @@
-from typing import TYPE_CHECKING, Iterable, Iterator, List, Optional
+from typing import TYPE_CHECKING, Iterator, Optional
 
-from sqlmodel import Field
-
-from core.models import IdNbeModel
+from core.models import LbeSchema
 from core.types import HexBytes
 
 if TYPE_CHECKING:
-    from models.block import Block
     from models.transactions.transaction import Transaction
 
 # Content types that belong to a channel.
@@ -30,25 +27,23 @@ def channel_id_of(content) -> Optional[bytes]:
     return channel if isinstance(channel, bytes) else bytes.fromhex(str(channel))
 
 
-class ChannelOperation(IdNbeModel, table=True):
+class ChannelOperation(LbeSchema):
     """One channel operation, indexed at ingestion time.
 
     Channel activity used to be aggregated on every request from the JSON of
     the most recent N transactions, which mis-counted long-lived channels and
-    dropped any channel whose activity fell outside the window. This table is
-    written in the same commit as its block, so counts are exact and queries
-    can restrict to canonical blocks. There is no backfill: a database that
-    predates this table is deleted and rebuilt from the node.
+    dropped any channel whose activity fell outside the window. These rows are
+    written in the same transaction as their block, so counts are exact and
+    queries can restrict to canonical blocks.
     """
 
-    __tablename__ = "channel_operation"
-
-    block_id: int = Field(foreign_key="block.id", nullable=False, index=True)
-    transaction_id: int = Field(foreign_key="transaction.id", nullable=False, index=True)
-    channel_id: HexBytes = Field(nullable=False, index=True)
-    op_type: str = Field(nullable=False)
+    id: Optional[int] = None
+    block_id: int
+    transaction_id: int
+    channel_id: HexBytes
+    op_type: str
     # Position of the op inside its transaction's `operations` list.
-    op_index: int = Field(nullable=False)
+    op_index: int
 
     def __repr__(self) -> str:
         return (
@@ -71,10 +66,3 @@ def channel_operations_of(transaction: "Transaction") -> Iterator[ChannelOperati
             op_index=op_index,
         )
 
-
-def channel_operations_for_blocks(blocks: Iterable["Block"]) -> List[ChannelOperation]:
-    rows: List[ChannelOperation] = []
-    for block in blocks:
-        for transaction in block.transactions:
-            rows.extend(channel_operations_of(transaction))
-    return rows

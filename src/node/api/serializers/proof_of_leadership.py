@@ -1,11 +1,11 @@
 from pydantic import Field
 
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from models.header.proof_of_leadership import Groth16ProofOfLeadership, ProofOfLeadership
 from node.api.serializers.fields import BytesFromHex
 
 
-class Groth16LeaderProofSerializer(NbeSerializer):
+class Groth16LeaderProofSerializer(LbeSerializer):
     entropy_contribution: BytesFromHex = Field(description="Fr integer.")
     leader_key: BytesFromHex = Field(description="Hash in hex format.")
     proof: BytesFromHex = Field(description="Groth16 proof bytes (128B) in hex format.")
