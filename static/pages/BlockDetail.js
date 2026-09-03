@@ -3,82 +3,8 @@ import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
-
-const OPERATIONS_PREVIEW_LIMIT = 2;
-
-// ---- Helpers ----
-const opLabel = (op) => {
-    if (op == null) return 'op';
-    if (typeof op === 'string' || typeof op === 'number') return String(op);
-    if (typeof op !== 'object') return String(op);
-    if (typeof op.type === 'string') return op.type;
-    if (typeof op.kind === 'string') return op.kind;
-    if (op.content) {
-        if (typeof op.content.type === 'string') return op.content.type;
-        if (typeof op.content.kind === 'string') return op.content.kind;
-    }
-    const keys = Object.keys(op);
-    return keys.length ? keys[0] : 'op';
-};
-
-function opsToPills(ops, limit = OPERATIONS_PREVIEW_LIMIT) {
-    const arr = Array.isArray(ops) ? ops : [];
-    if (!arr.length) return h('span', { style: 'color:var(--muted); white-space:nowrap;' }, '—');
-
-    const labels = arr.map(opLabel);
-    const shown = labels.slice(0, limit);
-    const extra = labels.length - shown.length;
-
-    return h(
-        'div',
-        { style: 'display:flex; gap:6px; flex-wrap:nowrap; align-items:center; white-space:nowrap;' },
-        ...shown.map((label, i) =>
-            h('span', { key: `${label}-${i}`, class: 'pill', title: label, style: 'flex:0 0 auto;' }, label),
-        ),
-        extra > 0 && h('span', { class: 'pill', title: `${extra} more`, style: 'flex:0 0 auto;' }, `+${extra}`),
-    );
-}
-
-function computeOutputsSummaryFromTx(tx) {
-    // Outputs now live inside LedgerTransfer ops; aggregate across them.
-    const ops = Array.isArray(tx?.operations) ? tx.operations : [];
-    const outputs = [];
-    for (const op of ops) {
-        const content = op?.content ?? op;
-        if (content?.type !== 'LedgerTransfer') continue;
-        if (Array.isArray(content.outputs)) outputs.push(...content.outputs);
-    }
-    const count = outputs.length;
-    const total = outputs.reduce((sum, o) => sum + Number(o?.value ?? 0), 0);
-    return { count, total };
-}
-
-function CopyPill({ text }) {
-    const onCopy = async (e) => {
-        e.preventDefault();
-        try {
-            await navigator.clipboard.writeText(String(text ?? ''));
-        } catch {}
-    };
-    return h(
-        'a',
-        {
-            class: 'pill linkish mono',
-            style: 'cursor:pointer; user-select:none;',
-            href: '#',
-            onClick: onCopy,
-            onKeyDown: (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onCopy(e);
-                }
-            },
-            tabIndex: 0,
-            role: 'button',
-        },
-        'Copy',
-    );
-}
+import { transferOutputs } from '../lib/format.js';
+import { CopyPill, OpPills } from '../components/Common.js';
 
 export default function BlockDetailPage({ parameters }) {
     const blockHash = parameters[0];
@@ -136,15 +62,12 @@ export default function BlockDetailPage({ parameters }) {
         };
     }, [blockHash, isValidHash]);
 
-    const header = block?.header ?? {}; // back-compat only
     const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
-
-    // Prefer new top-level fields; fallback to legacy header.*
     const height = block?.height ?? null;
-    const slot = block?.slot ?? header?.slot ?? null;
-    const blockRoot = block?.block_root ?? header?.block_root ?? '';
-    const currentBlockHash = block?.hash ?? header?.hash ?? '';
-    const parentHash = block?.parent_block_hash ?? header?.parent_block ?? '';
+    const slot = block?.slot ?? null;
+    const blockRoot = block?.block_root ?? '';
+    const currentBlockHash = block?.hash ?? '';
+    const parentHash = block?.parent_block_hash ?? '';
 
     return h(
         'main',
@@ -316,7 +239,7 @@ export default function BlockDetailPage({ parameters }) {
                                 'tbody',
                                 null,
                                 ...transactions.map((t) => {
-                                    const { count, total } = computeOutputsSummaryFromTx(t);
+                                    const { count, total } = transferOutputs(t?.operations);
                                     const executionGas = Number(t?.execution_gas_price ?? 0);
                                     const storageGas = Number(t?.storage_gas_price ?? 0);
                                     const ops = Array.isArray(t?.operations) ? t.operations : [];
@@ -360,7 +283,7 @@ export default function BlockDetailPage({ parameters }) {
                                         h(
                                             'td',
                                             { style: 'text-align:left; padding:8px 10px; white-space:nowrap;' },
-                                            opsToPills(ops),
+                                            h(OpPills, { ops }),
                                         ),
                                     );
                                 }),

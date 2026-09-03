@@ -6,24 +6,15 @@ import { TABLE_SIZE } from '../lib/constants.js';
 import { shortenHex, streamNdjson } from '../lib/utils.js';
 import { subscribeFork } from '../lib/fork.js';
 
-const normalize = (raw) => {
-    const header = raw.header ?? null;
-    const txLen = Array.isArray(raw.transactions)
-        ? raw.transactions.length
-        : Array.isArray(raw.txs)
-          ? raw.txs.length
-          : 0;
-
-    return {
-        id: Number(raw.id ?? 0),
-        height: Number(raw.height ?? 0),
-        slot: Number(raw.slot ?? header?.slot ?? 0),
-        hash: raw.hash ?? header?.hash ?? '',
-        parent: raw.parent_block_hash ?? header?.parent_block ?? raw.parent_block ?? '',
-        root: raw.block_root ?? header?.block_root ?? '',
-        transactionCount: txLen,
-    };
-};
+const normalize = (raw) => ({
+    id: Number(raw.id ?? 0),
+    height: Number(raw.height ?? 0),
+    slot: Number(raw.slot ?? 0),
+    hash: raw.hash ?? '',
+    parent: raw.parent_block_hash ?? '',
+    root: raw.block_root ?? '',
+    transactionCount: Array.isArray(raw.transactions) ? raw.transactions.length : 0,
+});
 
 export default function BlocksTable({ live, onDisableLive }) {
     const [blocks, setBlocks] = useState([]);
@@ -126,11 +117,6 @@ export default function BlocksTable({ live, onDisableLive }) {
         }
     };
 
-    const navigateToBlockDetail = (blockHash) => {
-        history.pushState({}, '', PAGE.BLOCK_DETAIL(blockHash));
-        window.dispatchEvent(new PopStateEvent('popstate'));
-    };
-
     const renderRow = (b, idx) => {
         return h(
             'tr',
@@ -145,10 +131,6 @@ export default function BlocksTable({ live, onDisableLive }) {
                         class: 'linkish mono',
                         href: PAGE.BLOCK_DETAIL(b.hash),
                         title: b.hash,
-                        onClick: (e) => {
-                            e.preventDefault();
-                            navigateToBlockDetail(b.hash);
-                        },
                     },
                     shortenHex(b.hash),
                 ),
@@ -167,10 +149,6 @@ export default function BlocksTable({ live, onDisableLive }) {
                         class: 'linkish mono',
                         href: PAGE.BLOCK_DETAIL(b.parent),
                         title: b.parent,
-                        onClick: (e) => {
-                            e.preventDefault();
-                            navigateToBlockDetail(b.parent);
-                        },
                     },
                     shortenHex(b.parent),
                 ),

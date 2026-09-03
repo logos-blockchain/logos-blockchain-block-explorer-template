@@ -5,71 +5,27 @@ import { API, PAGE } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
 import { shortenHex, streamNdjson } from '../lib/utils.js';
 import { subscribeFork } from '../lib/fork.js';
+import { opLabel, transferOutputs, tryDecodeUtf8Hex } from '../lib/format.js';
 
 const OPERATIONS_PREVIEW_LIMIT = 2;
 
-// ---------- coercion / formatting helpers ----------
-const toNumber = (v) => {
-    if (v == null) return 0;
-    if (typeof v === 'number') return v;
-    if (typeof v === 'bigint') return Number(v);
-    if (typeof v === 'string') {
-        const s = v.trim();
-        if (/^0x[0-9a-f]+$/i.test(s)) return Number(BigInt(s));
-        const n = Number(s);
-        return Number.isFinite(n) ? n : 0;
-    }
-    if (typeof v === 'object' && v !== null && 'value' in v) return toNumber(v.value);
-    return 0;
-};
-
-function tryDecodeUtf8Hex(hex) {
-    if (typeof hex !== 'string' || hex.length === 0 || hex.length % 2 !== 0) return null;
-    try {
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < hex.length; i += 2) {
-            const b = parseInt(hex.substring(i, i + 2), 16);
-            if (Number.isNaN(b)) return null;
-            bytes[i / 2] = b;
-        }
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        if (/[\x20-\x7e]/.test(text)) return text;
-        return null;
-    } catch {
-        return null;
-    }
-}
-
 function opPreview(op) {
-    const content = op?.content ?? op;
-    const type = content?.type ?? (typeof op === 'string' ? op : 'op');
-
+    const content = op?.content;
+    const type = opLabel(op);
     if (type === 'ChannelInscribe' && content) {
         const chanShort = typeof content.channel_id === 'string' ? content.channel_id.slice(0, 8) : '?';
         let inscPreview = '';
         if (typeof content.inscription === 'string') {
             const decoded = tryDecodeUtf8Hex(content.inscription);
-            if (decoded != null) {
-                inscPreview = decoded.length > 20 ? decoded.slice(0, 20) + '\u2026' : decoded;
-            } else {
-                inscPreview = content.inscription.slice(0, 12) + '\u2026';
-            }
+            inscPreview =
+                decoded != null
+                    ? decoded.length > 20
+                        ? decoded.slice(0, 20) + '\u2026'
+                        : decoded
+                    : content.inscription.slice(0, 12) + '\u2026';
         }
         return `${type}(${chanShort}\u2026, ${inscPreview})`;
     }
-
-    if (type === 'ChannelBlob' && content) {
-        const chanShort = typeof content.channel === 'string' ? content.channel.slice(0, 8) : '?';
-        const size = content.blob_size != null ? `${content.blob_size}B` : '?';
-        return `${type}(${chanShort}\u2026, ${size})`;
-    }
-
-    if (type === 'ChannelSetKeys' && content) {
-        const chanShort = typeof content.channel === 'string' ? content.channel.slice(0, 8) : '?';
-        const nKeys = Array.isArray(content.keys) ? content.keys.length : '?';
-        return `${type}(${chanShort}\u2026, ${nKeys} keys)`;
-    }
-
     return type;
 }
 
@@ -78,36 +34,18 @@ function formatOperationsPreview(ops) {
     const previews = ops.map(opPreview);
     if (previews.length <= OPERATIONS_PREVIEW_LIMIT) return previews.join(', ');
     const head = previews.slice(0, OPERATIONS_PREVIEW_LIMIT).join(', ');
-    const remainder = previews.length - OPERATIONS_PREVIEW_LIMIT;
-    return `${head} +${remainder}`;
-}
-
-// ---------- normalize API → view model ----------
-// Outputs come from the LedgerTransfer op(s) since the top-level inputs/outputs
-// columns were removed (the new mantle schema represents transfers as ops).
-function collectTransferOutputs(ops) {
-    const outputs = [];
-    for (const op of ops) {
-        const content = op?.content ?? op;
-        if (content?.type !== 'LedgerTransfer') continue;
-        if (Array.isArray(content.outputs)) outputs.push(...content.outputs);
-    }
-    return outputs;
+    return `${head} +${previews.length - OPERATIONS_PREVIEW_LIMIT}`;
 }
 
 function normalize(raw) {
-    const ops = Array.isArray(raw?.operations) ? raw.operations : Array.isArray(raw?.ops) ? raw.ops : [];
-    const outputs = collectTransferOutputs(ops);
-    const totalOutputValue = outputs.reduce((sum, note) => sum + toNumber(note?.value), 0);
-
+    const ops = Array.isArray(raw?.operations) ? raw.operations : [];
+    const { count, total } = transferOutputs(ops);
     return {
         id: raw?.id ?? '',
         hash: raw?.hash ?? '',
         operations: ops,
-        executionGasPrice: toNumber(raw?.execution_gas_price),
-        storageGasPrice: toNumber(raw?.storage_gas_price),
-        numberOfOutputs: outputs.length,
-        totalOutputValue,
+        numberOfOutputs: count,
+        totalOutputValue: total,
     };
 }
 
@@ -211,11 +149,6 @@ export default function TransactionsTable({ live, onDisableLive }) {
         }
     };
 
-    const navigateToTxDetail = (txHash) => {
-        history.pushState({}, '', PAGE.TRANSACTION_DETAIL(txHash));
-        window.dispatchEvent(new PopStateEvent('popstate'));
-    };
-
     const renderRow = (tx, idx) => {
         const opsPreview = formatOperationsPreview(tx.operations);
         const fullPreview = Array.isArray(tx.operations) ? tx.operations.map(opPreview).join(', ') : '';
@@ -234,10 +167,6 @@ export default function TransactionsTable({ live, onDisableLive }) {
                         class: 'linkish mono',
                         href: PAGE.TRANSACTION_DETAIL(tx.hash),
                         title: tx.hash,
-                        onClick: (e) => {
-                            e.preventDefault();
-                            navigateToTxDetail(tx.hash);
-                        },
                     },
                     shortenHex(tx.hash),
                 ),

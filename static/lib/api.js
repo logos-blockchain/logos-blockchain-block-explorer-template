@@ -10,7 +10,6 @@ const HEALTH_ENDPOINT = joinUrl(API_PREFIX, 'health/stream');
 
 const TRANSACTION_DETAIL_BY_HASH = (hash, fork) =>
     `${joinUrl(API_PREFIX, 'transactions', encodeHash(hash))}?fork=${encodeURIComponent(fork)}`;
-const TRANSACTIONS_STREAM = joinUrl(API_PREFIX, 'transactions/stream');
 
 const FORK_CHOICE = joinUrl(API_PREFIX, 'fork-choice');
 
@@ -39,7 +38,6 @@ export const API = {
     CHANNEL_DETAIL_BY_ID,
     NOTE_SEARCH,
     TRANSACTION_DETAIL_BY_HASH,
-    TRANSACTIONS_STREAM,
     TRANSACTIONS_STREAM_WITH_FORK,
     TRANSACTIONS_LIST,
     BLOCK_DETAIL_BY_HASH,

@@ -4,95 +4,8 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
 import { subscribeFork } from '../lib/fork.js';
-
-// ————— helpers —————
-const isNumber = (v) => typeof v === 'number' && !Number.isNaN(v);
-const toLocaleNum = (n, opts = {}) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 8, ...opts });
-
-// Best-effort pretty bytes/hex/string
-function renderBytes(value) {
-    if (value == null) return '';
-    if (typeof value === 'string') return value; // hex/base64/plain
-    if (Array.isArray(value) && value.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)) {
-        return '0x' + value.map((b) => b.toString(16).padStart(2, '0')).join('');
-    }
-    try {
-        return JSON.stringify(value);
-    } catch {
-        return String(value);
-    }
-}
-
-const opLabel = (op) => {
-    if (op == null) return 'op';
-    if (typeof op === 'string' || typeof op === 'number') return String(op);
-    if (typeof op !== 'object') return String(op);
-    if (typeof op.type === 'string') return op.type;
-    if (typeof op.kind === 'string') return op.kind;
-    if (op.content) {
-        if (typeof op.content.type === 'string') return op.content.type;
-        if (typeof op.content.kind === 'string') return op.content.kind;
-    }
-    const keys = Object.keys(op);
-    return keys.length ? keys[0] : 'op';
-};
-
-function opsToPills(ops, limit = 6) {
-    const arr = Array.isArray(ops) ? ops : [];
-    if (!arr.length) return h('span', { style: 'color:var(--muted); whiteSpace: "nowrap";' }, '—');
-    const labels = arr.map(opLabel);
-    const shown = labels.slice(0, limit);
-    const extra = labels.length - shown.length;
-    return h(
-        'div',
-        { style: 'display:flex; gap:6px; flexWrap:"wrap"; alignItems:"center"' },
-        ...shown.map((label, i) =>
-            h('span', { key: `${label}-${i}`, class: 'pill', title: label, style: 'flex:0 0 auto;' }, label),
-        ),
-        extra > 0 && h('span', { class: 'pill', title: `${extra} more`, style: 'flex:0 0 auto;' }, `+${extra}`),
-    );
-}
-
-const toNumber = (v) => {
-    if (v == null) return 0;
-    if (typeof v === 'number') return v;
-    if (typeof v === 'bigint') return Number(v);
-    if (typeof v === 'string') {
-        const s = v.trim();
-        if (/^0x[0-9a-f]+$/i.test(s)) return Number(BigInt(s));
-        const n = Number(s);
-        return Number.isFinite(n) ? n : 0;
-    }
-    if (typeof v === 'object' && v !== null && 'value' in v) return toNumber(v.value);
-    return 0;
-};
-
-function CopyPill({ text, label = 'Copy' }) {
-    const onCopy = async (e) => {
-        e.preventDefault();
-        try {
-            await navigator.clipboard.writeText(String(text ?? ''));
-        } catch {}
-    };
-    return h(
-        'a',
-        {
-            class: 'pill linkish mono',
-            style: 'cursor:pointer; user-select:none;',
-            href: '#',
-            onClick: onCopy,
-            onKeyDown: (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onCopy(e);
-                }
-            },
-            tabIndex: 0,
-            role: 'button',
-        },
-        label,
-    );
-}
+import { fieldLabel, opLabel, renderBytes, toLocaleNum, toNumber, tryDecodeUtf8Hex } from '../lib/format.js';
+import { CopyPill, FieldValue, OpPills } from '../components/Common.js';
 
 // ————— normalizer for TransactionRead —————
 // { id, block_hash, hash, operations:[Operation], execution_gas_price, storage_gas_price }
@@ -105,10 +18,8 @@ function normalizeTransaction(raw) {
         blockHash: raw?.block_hash ?? null,
         hash: renderBytes(raw?.hash),
         operations: ops,
-        executionGasPrice: isNumber(raw?.execution_gas_price)
-            ? raw.execution_gas_price
-            : toNumber(raw?.execution_gas_price),
-        storageGasPrice: isNumber(raw?.storage_gas_price) ? raw.storage_gas_price : toNumber(raw?.storage_gas_price),
+        executionGasPrice: toNumber(raw?.execution_gas_price),
+        storageGasPrice: toNumber(raw?.storage_gas_price),
     };
 }
 
@@ -171,7 +82,7 @@ function Summary({ tx }) {
             ),
 
             // Operations (labels as pills)
-            h('div', null, h('b', null, 'Operations: '), opsToPills(tx.operations)),
+            h('div', null, h('b', null, 'Operations: '), h(OpPills, { ops: tx.operations, limit: 6, wrap: true })),
         ),
     );
 }
@@ -282,54 +193,6 @@ function OutputsTable({ outputs }) {
 
 // ————— operations detail —————
 
-/** Try to decode a hex string as UTF-8. Returns the decoded string or null on failure. */
-function tryDecodeUtf8Hex(hex) {
-    if (typeof hex !== 'string' || hex.length === 0 || hex.length % 2 !== 0) return null;
-    try {
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < hex.length; i += 2) {
-            const b = parseInt(hex.substring(i, i + 2), 16);
-            if (Number.isNaN(b)) return null;
-            bytes[i / 2] = b;
-        }
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        // Only accept if it contains at least one printable non-control character
-        if (/[\x20-\x7e]/.test(text)) return text;
-        return null;
-    } catch {
-        return null;
-    }
-}
-
-/** Human-friendly label for a content field key */
-const fieldLabel = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
-/** Render the value of a single content field */
-function FieldValue({ value }) {
-    if (value == null) return h('span', { class: 'mono', style: 'color:var(--muted)' }, 'null');
-    if (typeof value === 'number') return h('span', { class: 'mono' }, toLocaleNum(value));
-    if (typeof value === 'string') {
-        // hex strings
-        if (value.length > 24) {
-            return h(
-                'span',
-                { style: 'display:flex; align-items:center; gap:6px;' },
-                h('span', { class: 'mono', style: 'overflow-wrap:anywhere; word-break:break-all;' }, value),
-                h(CopyPill, { text: value }),
-            );
-        }
-        return h('span', { class: 'mono' }, value);
-    }
-    if (Array.isArray(value)) {
-        return h(
-            'div',
-            { style: 'display:flex; flex-direction:column; gap:4px;' },
-            ...value.map((item, i) => h('div', { key: i }, h(FieldValue, { value: renderBytes(item) }))),
-        );
-    }
-    return h('span', { class: 'mono' }, renderBytes(value));
-}
-
 function InscriptionValue({ value }) {
     const decoded = tryDecodeUtf8Hex(value);
     if (decoded != null) {
@@ -378,11 +241,7 @@ function LedgerTransferContent({ content }) {
                 { style: 'display:flex; align-items:center; gap:8px;' },
                 h('b', null, 'Outputs'),
                 h('span', { class: 'pill' }, String(outputs.length)),
-                h(
-                    'span',
-                    { class: 'amount', style: 'margin-left:auto;' },
-                    `Total: ${toLocaleNum(totalOutputValue)}`,
-                ),
+                h('span', { class: 'amount', style: 'margin-left:auto;' }, `Total: ${toLocaleNum(totalOutputValue)}`),
             ),
             h(OutputsTable, { outputs }),
         ),
@@ -436,7 +295,7 @@ function OperationProof({ proof }) {
 function OperationCard({ op, index }) {
     const content = op?.content ?? op;
     const proof = op?.proof ?? null;
-    const type = content?.type ?? opLabel(op);
+    const type = opLabel(op);
 
     return h(
         'div',
@@ -445,7 +304,14 @@ function OperationCard({ op, index }) {
             'div',
             { style: 'display:flex; align-items:center; gap:8px; margin-bottom:10px;' },
             h('span', { class: 'pill', style: 'font-size:11px;' }, `#${index}`),
-            h('span', { class: 'pill', style: 'background:var(--accent-bg); color:var(--accent); border-color:var(--accent);' }, type),
+            h(
+                'span',
+                {
+                    class: 'pill',
+                    style: 'background:var(--accent-bg); color:var(--accent); border-color:var(--accent);',
+                },
+                type,
+            ),
         ),
         h(OperationContent, { content }),
         h(OperationProof, { proof }),
@@ -550,12 +416,6 @@ export default function TransactionDetail({ parameters }) {
         !tx && !err && h('p', null, 'Loading…'),
 
         // Success
-        tx &&
-            h(
-                Fragment,
-                null,
-                h(Summary, { tx }),
-                h(Operations, { operations: tx.operations }),
-            ),
+        tx && h(Fragment, null, h(Summary, { tx }), h(Operations, { operations: tx.operations })),
     );
 }

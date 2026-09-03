@@ -58,7 +58,9 @@ header {
     padding: 12px 20px;
     background: var(--card);
     border-bottom: 1px solid var(--rule);
-    box-shadow: 0 1px 0 var(--card), 0 3px 0 -1px var(--border);
+    box-shadow:
+        0 1px 0 var(--card),
+        0 3px 0 -1px var(--border);
     position: sticky;
     top: 0;
     z-index: 10;

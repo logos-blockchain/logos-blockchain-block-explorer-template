@@ -1,8 +1,7 @@
 """Tests for node API serializers against the current (0.3.0-rc.2) wire format.
 
-The fixtures are real data: block_new_format.json is a block captured from a
-node, and ops_samples_testnet.json holds per-opcode op/proof samples harvested
-from the chain.
+block_new_format.json is a real block captured from a node; the per-op tests
+patch its first transaction with the payload under test.
 """
 
 import json

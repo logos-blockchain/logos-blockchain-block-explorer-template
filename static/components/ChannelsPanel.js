@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { API, PAGE } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
 import { subscribeFork } from '../lib/fork.js';
-import { summarize, OP_LABELS, navigateTo } from '../lib/channels.js';
+import { summarize, OP_LABELS } from '../lib/channels.js';
 
 const CHANNEL_LIMIT = 8;
 const OPS_LIMIT = 25;
@@ -26,10 +26,6 @@ function ChannelOp({ op }) {
                     class: 'linkish mono channel-op-tx',
                     href: txUrl,
                     title: op.transaction_hash,
-                    onClick: (e) => {
-                        e.preventDefault();
-                        navigateTo(txUrl);
-                    },
                 },
                 shortenHex(op.transaction_hash, 8, 6),
             ),
@@ -53,10 +49,6 @@ function ChannelColumn({ channel }) {
                     class: 'linkish mono channel-id',
                     href: channelUrl,
                     title: channel.channel_id,
-                    onClick: (e) => {
-                        e.preventDefault();
-                        navigateTo(channelUrl);
-                    },
                 },
                 shortenHex(channel.channel_id, 8, 6),
             ),
@@ -127,6 +119,10 @@ export default function ChannelsPanel() {
             h('div', { class: 'channels-empty' }, 'No channel activity on this chain yet.'),
         channels != null &&
             channels.length > 0 &&
-            h('div', { class: 'channels-row' }, ...channels.map((channel) => h(ChannelColumn, { channel, key: channel.channel_id }))),
+            h(
+                'div',
+                { class: 'channels-row' },
+                ...channels.map((channel) => h(ChannelColumn, { channel, key: channel.channel_id })),
+            ),
     );
 }

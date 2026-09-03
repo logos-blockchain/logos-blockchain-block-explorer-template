@@ -3,7 +3,7 @@
 import { h } from 'preact';
 import { useState } from 'preact/hooks';
 import { PAGE } from '../lib/api.js';
-import { navigateTo } from '../lib/channels.js';
+import { navigateTo } from '../lib/utils.js';
 
 const NOTE_ID_HEX_LENGTH = 64;
 

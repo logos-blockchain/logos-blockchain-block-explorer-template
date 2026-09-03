@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
 import { subscribeFork } from '../lib/fork.js';
-import { navigateTo } from '../lib/channels.js';
 import NoteSearchBar from '../components/NoteSearchBar.js';
 
 function MatchTag({ match }) {
@@ -33,10 +32,6 @@ function ResultRow({ tx }) {
                     class: 'linkish mono',
                     href: txUrl,
                     title: tx.hash,
-                    onClick: (e) => {
-                        e.preventDefault();
-                        navigateTo(txUrl);
-                    },
                 },
                 shortenHex(tx.hash, 12, 8),
             ),
@@ -46,15 +41,15 @@ function ResultRow({ tx }) {
                     class: 'linkish note-result-height',
                     href: blockUrl,
                     title: tx.block_hash,
-                    onClick: (e) => {
-                        e.preventDefault();
-                        navigateTo(blockUrl);
-                    },
                 },
                 `height ${tx.height} · slot ${tx.slot}`,
             ),
         ),
-        h('div', { class: 'note-result-matches' }, ...(tx.matches ?? []).map((m, i) => h(MatchTag, { key: i, match: m }))),
+        h(
+            'div',
+            { class: 'note-result-matches' },
+            ...(tx.matches ?? []).map((m, i) => h(MatchTag, { key: i, match: m })),
+        ),
     );
 }
 
@@ -141,11 +136,7 @@ export default function NoteSearch({ parameters }) {
                     'div',
                     { class: 'note-search-head' },
                     h('span', { class: 'pill mono', style: 'overflow-wrap:anywhere;' }, data.note_id),
-                    h(
-                        'span',
-                        { class: 'channel-count' },
-                        `${data.count} transaction${data.count === 1 ? '' : 's'}`,
-                    ),
+                    h('span', { class: 'channel-count' }, `${data.count} transaction${data.count === 1 ? '' : 's'}`),
                 ),
                 data.count === 0 &&
                     h(
@@ -160,11 +151,7 @@ export default function NoteSearch({ parameters }) {
                         ...(data.transactions ?? []).map((tx) => h(ResultRow, { tx, key: tx.hash })),
                     ),
                 data.count >= data.limit &&
-                    h(
-                        'div',
-                        { class: 'channel-detail-scan-note' },
-                        `Showing the ${data.limit} most recent matches.`,
-                    ),
+                    h('div', { class: 'channel-detail-scan-note' }, `Showing the ${data.limit} most recent matches.`),
             ),
     );
 }

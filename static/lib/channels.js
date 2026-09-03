@@ -33,10 +33,6 @@ export function summarize(content) {
             return `${content.inputs?.length ?? 0} inputs`;
         case 'ChannelTransfer':
             return `${content.inputs?.length ?? 0} in → ${content.outputs?.length ?? 0} out`;
-        case 'ChannelSetKeys':
-            return `${content.keys?.length ?? 0} keys`;
-        case 'ChannelBlob':
-            return `${content.blob_size ?? 0} B blob`;
         default:
             return '';
     }
@@ -48,11 +44,4 @@ export const OP_LABELS = {
     ChannelDeposit: 'DEPOSIT',
     ChannelWithdraw: 'WITHDRAW',
     ChannelTransfer: 'TRANSFER',
-    ChannelSetKeys: 'SET-KEYS',
-    ChannelBlob: 'BLOB',
 };
-
-export function navigateTo(url) {
-    history.pushState({}, '', url);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-}

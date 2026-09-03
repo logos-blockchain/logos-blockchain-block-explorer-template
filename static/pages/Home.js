@@ -15,7 +15,9 @@ export default function HomeView() {
         { class: 'wrap' },
         h(
             'div',
-            { style: 'display:flex; gap:12px; align-items:flex-start; justify-content:space-between; margin-bottom:12px;' },
+            {
+                style: 'display:flex; gap:12px; align-items:flex-start; justify-content:space-between; margin-bottom:12px;',
+            },
             h(NoteSearchBar, null),
             h(
                 'button',
