@@ -23,7 +23,6 @@ class BlockSerializer(NbeSerializer):
     transactions: List[SignedTransactionSerializer]
 
     def into_block(self) -> Block:
-        transactions = [transaction.into_transaction() for transaction in self.transactions]
         return Block.model_validate(
             {
                 "hash": self.header.hash,
@@ -41,8 +40,9 @@ class BlockSerializer(NbeSerializer):
                     }
                     for uncle in self.uncle_headers
                 ],
+                "transactions": [transaction.into_transaction() for transaction in self.transactions],
             }
-        ).with_transactions(transactions)
+        )
 
     def __repr__(self) -> str:
         return f"<BlockSerializer(slot={self.header.slot}, hash={self.header.hash.hex()})>"

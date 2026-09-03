@@ -1,9 +1,9 @@
 from http.client import BAD_REQUEST
 
-from fastapi import Query
+from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from core.api import NBERequest
+from api.http import query_int
 from models.transactions.transaction import Transaction
 
 NOTE_ID_BYTES = 32
@@ -69,32 +69,29 @@ def _parse_note_id(raw: str) -> bytes | None:
     return note_id if len(note_id) == NOTE_ID_BYTES else None
 
 
-async def search(
-    request: NBERequest,
-    note_id: str,
-    limit: int = Query(50, ge=1, le=200),
-) -> Response:
+async def search(request: Request) -> Response:
     """Transactions containing an operation that references the note id, newest first."""
-    note = _parse_note_id(note_id)
+    limit = query_int(request, "limit", 50, ge=1, le=200)
+    note = _parse_note_id(request.path_params["note_id"])
     if note is None:
         return JSONResponse(
             {"detail": f"note_id must be {NOTE_ID_BYTES} bytes of hex ({NOTE_ID_BYTES * 2} characters)"},
             status_code=BAD_REQUEST,
         )
 
-    candidates = await request.app.state.transaction_repository.search_by_note_id(note, limit=limit)
+    candidates = request.app.state.db.search_transactions_by_note(note, limit=limit)
 
     results = []
-    for transaction in candidates:
+    for transaction, block in candidates:
         matches = find_note_references(transaction, note)
         if not matches:
             continue  # hex appeared in a non-note field (signature, key, metadata)
         results.append(
             {
                 "hash": transaction.hash.hex(),
-                "block_hash": transaction.block.hash.hex(),
-                "height": transaction.block.height,
-                "slot": transaction.block.slot,
+                "block_hash": block.hash.hex(),
+                "height": block.height,
+                "slot": block.slot,
                 "matches": matches,
             }
         )

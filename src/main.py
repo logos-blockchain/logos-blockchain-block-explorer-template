@@ -1,40 +1,28 @@
 import asyncio
-from os import getenv
 
 import uvicorn
-from dotenv import load_dotenv
 
 from app import create_app
+from core.settings import Settings, load_dotenv
 from logs import setup_logging
 
 
 async def main():
-    base_path = getenv("NBE_BASE_PATH", "").strip().rstrip("/")
-    app = create_app(base_path)
-
-    host = getenv("NBE_HOST", "0.0.0.0")
-    port = int(getenv("NBE_PORT", 8000))
+    settings = Settings.from_env()
     config = uvicorn.Config(
-        app,
-        host=host,
-        port=port,
-        reload=False,
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
+        root_path=settings.base_path,
         loop="asyncio",
         log_config=None,
         # The NDJSON streams are held open indefinitely by browser tabs; without
         # a bound, uvicorn waits for them forever on SIGTERM.
         timeout_graceful_shutdown=5,
     )
-    server = uvicorn.Server(config)
-
-    try:
-        await server.serve()
-    except KeyboardInterrupt:
-        # Swallow debugger’s SIGINT
-        pass
+    await uvicorn.Server(config).serve()
 
 
-# Pycharm-Debuggable Uvicorn Server
 if __name__ == "__main__":
     try:
         load_dotenv()

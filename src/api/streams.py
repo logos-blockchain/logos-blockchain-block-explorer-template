@@ -1,11 +1,10 @@
 import logging
-from typing import AsyncIterable, AsyncIterator, Awaitable, Callable, List, Sequence, TypeVar, Union
+from typing import AsyncIterable, AsyncIterator, Callable, List, Sequence, TypeVar, Union
 
-from core.models import NbeModel, NbeSchema
+from core.models import NbeSchema
 from core.notifier import ChainNotifier
 
-T = Union[NbeModel, NbeSchema]
-Data = Union[T, List[T]]
+Data = Union[NbeSchema, List[NbeSchema]]
 Stream = AsyncIterator[Data]
 
 # How long a stream waits for a change notification before re-checking the
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 Row = TypeVar("Row")
 
 
-def _ndjson_line(item: T) -> bytes:
+def _ndjson_line(item: NbeSchema) -> bytes:
     return f"{item.model_dump_json()}\n".encode()
 
 
@@ -44,7 +43,7 @@ async def into_ndjson_stream(stream: Stream, *, bootstrap_data: Data = None) -> 
 
 async def follow_chain(
     notifier: ChainNotifier,
-    fetch_since: Callable[[int], Awaitable[Sequence[Row]]],
+    fetch_since: Callable[[int], Sequence[Row]],
     *,
     after: int,
     cursor_of: Callable[[Row], int],
@@ -52,7 +51,7 @@ async def follow_chain(
     """Yield batches of rows past a cursor as ingestion commits them.
 
     `fetch_since(cursor)` must return rows in ascending `cursor_of` order. The
-    cursor is the canonical sequence (see Block.canonical_seq), so a block that
+    cursor is the canonical sequence (see the block table), so a block that
     becomes canonical in a reorg is delivered even if its row id is old. The
     notifier version is read before each fetch so a commit landing between the
     fetch and the wait is never missed.
@@ -60,7 +59,7 @@ async def follow_chain(
     cursor = after
     while True:
         version = notifier.version
-        rows = await fetch_since(cursor)
+        rows = fetch_since(cursor)
         if rows:
             cursor = max(cursor_of(row) for row in rows)
             yield list(rows)

@@ -12,10 +12,9 @@ from typing import Dict, List
 
 import pytest
 
-import node.lifespan as lifespan
+import node.ingestion as ingestion
 from core.notifier import ChainNotifier
-from db.blocks import BlockRepository
-from db.clients.sqlite import SqliteClient
+from db import Database
 from node.api.http import BlockEvent
 from node.api.serializers.block import BlockSerializer
 
@@ -79,22 +78,17 @@ class FakeNodeApi:
 
 @pytest.fixture
 def app(tmp_path):
-    client = SqliteClient(sqlite_db_path=f"sqlite:///{tmp_path / 'test.db'}")
     return SimpleNamespace(
-        state=SimpleNamespace(
-            block_repository=BlockRepository(client),
-            chain_notifier=ChainNotifier(),
-            node_api=None,
-        )
+        state=SimpleNamespace(db=Database(str(tmp_path / "test.db")), notifier=ChainNotifier(), node_api=None)
     )
 
 
 def stored_heights(app) -> List[int]:
-    return [b.height for b in asyncio.run(app.state.block_repository.get_latest(1000))]
+    return [b.height for b in app.state.db.latest_blocks(1000)]
 
 
 def stored(app, hash: str):
-    return asyncio.run(app.state.block_repository.get_by_hash(bytes.fromhex(hash)))
+    return app.state.db.block_by_hash(bytes.fromhex(hash))
 
 
 def test_backfill_stores_referenced_uncles_including_uncle_chains(app):
@@ -107,7 +101,7 @@ def test_backfill_stores_referenced_uncles_including_uncle_chains(app):
     blocks["05" * 32] = block_payload("05" * 32, "04" * 32, 5, uncles=[u2, u1])
     app.state.node_api = FakeNodeApi(blocks)
 
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
 
     assert stored_heights(app) == list(range(1, 6))  # canonical chain unaffected
     assert (stored(app, "a1" * 32).height, stored(app, "a1" * 32).canonical) == (3, False)
@@ -123,7 +117,7 @@ def test_uncles_below_lib_are_not_probed(app):
     blocks["a2" * 32] = new_uncle  # the node still has the recent one, and has pruned the old one
     app.state.node_api = FakeNodeApi(blocks, lib_slot=4)
 
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
 
     assert "a1" * 32 not in app.state.node_api.fetches
     assert stored(app, "a2" * 32).canonical is False
@@ -132,7 +126,7 @@ def test_uncles_below_lib_are_not_probed(app):
 def test_streamed_block_backfills_its_uncles(app):
     blocks = chain(3)
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
 
     u = block_payload("a1" * 32, "02" * 32, 3)
     blocks["a1" * 32] = u
@@ -140,18 +134,18 @@ def test_streamed_block_backfills_its_uncles(app):
     event = BlockEvent(
         block=BlockSerializer.model_validate(blocks["04" * 32]), tip=bytes.fromhex("04" * 32), lib_slot=0
     )
-    asyncio.run(lifespan.store_streamed_block(app, event))
+    asyncio.run(ingestion.store_streamed_block(app, event))
 
     assert stored_heights(app) == [1, 2, 3, 4]
     assert stored(app, "a1" * 32).canonical is False
 
 
 def test_backfill_inserts_oldest_first_in_batches_with_bounded_memory(app, monkeypatch):
-    monkeypatch.setattr(lifespan, "SQLITE_BATCH_INSERT_SIZE", 4)
+    monkeypatch.setattr(ingestion, "SQLITE_BATCH_INSERT_SIZE", 4)
     blocks = chain(10)
     app.state.node_api = FakeNodeApi(blocks)
 
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
 
     assert stored_heights(app) == list(range(1, 11))
     # Every block fetched once on the walk; the two newer batches (6 blocks)
@@ -162,15 +156,15 @@ def test_backfill_inserts_oldest_first_in_batches_with_bounded_memory(app, monke
 def test_backfill_stops_at_already_stored_block(app):
     blocks = chain(6)
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
     fetched_before = len(app.state.node_api.fetches)
 
     # Two more blocks appear; walking from the new tip stops at block 6.
     for i in (7, 8):
         h = f"{i:02x}" * 32
         blocks[h] = block_payload(h, f"{i - 1:02x}" * 32, i)
-    asyncio.run(lifespan.backfill_chain_from_hash(app, "08" * 32))
-    asyncio.run(lifespan.follow_node_tip(app, bytes.fromhex("08" * 32)))
+    asyncio.run(ingestion.backfill_chain_from_hash(app, "08" * 32))
+    asyncio.run(ingestion.follow_node_tip(app, bytes.fromhex("08" * 32)))
 
     assert stored_heights(app) == list(range(1, 9))
     assert len(app.state.node_api.fetches) - fetched_before == 2
@@ -179,7 +173,7 @@ def test_backfill_stops_at_already_stored_block(app):
 def test_subscription_reconnects_after_stream_ends_and_backfills_gap(app, monkeypatch):
     blocks = chain(3)
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
 
     for i in (4, 5, 6):
         h = f"{i:02x}" * 32
@@ -195,10 +189,10 @@ def test_subscription_reconnects_after_stream_ends_and_backfills_gap(app, monkey
         if len(sleeps) >= 3:
             raise asyncio.CancelledError  # stop the forever-loop once reconnects are proven
 
-    monkeypatch.setattr(lifespan.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(ingestion.asyncio, "sleep", fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(lifespan.subscribe_to_new_blocks(app))
+        asyncio.run(ingestion.subscribe_to_new_blocks(app))
 
     assert stored_heights(app) == list(range(1, 7))
     # Backoff: 1s after session 1 ended, reset to 1s by session 2's block, then
@@ -209,7 +203,7 @@ def test_subscription_reconnects_after_stream_ends_and_backfills_gap(app, monkey
 def test_subscription_survives_stream_errors(app, monkeypatch):
     blocks = chain(2)
     app.state.node_api = FakeNodeApi(blocks, stream_sessions=[])  # every connect raises
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
 
     sleeps: List[float] = []
 
@@ -218,9 +212,9 @@ def test_subscription_survives_stream_errors(app, monkeypatch):
         if len(sleeps) >= 4:
             raise asyncio.CancelledError
 
-    monkeypatch.setattr(lifespan.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(ingestion.asyncio, "sleep", fake_sleep)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(lifespan.subscribe_to_new_blocks(app))
+        asyncio.run(ingestion.subscribe_to_new_blocks(app))
 
     assert sleeps == [1.0, 2.0, 4.0, 8.0]
 
@@ -228,7 +222,7 @@ def test_subscription_survives_stream_errors(app, monkeypatch):
 def test_streamed_event_follows_node_tip_even_onto_shorter_branch(app):
     blocks = chain(4)  # canonical 1..4
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
     assert stored_heights(app) == [1, 2, 3, 4]
 
     # The node reorgs onto a 3-block branch off block 2 and reports that as its tip.
@@ -236,7 +230,7 @@ def test_streamed_event_follows_node_tip_even_onto_shorter_branch(app):
     event = BlockEvent(
         block=BlockSerializer.model_validate(blocks["b3" * 32]), tip=bytes.fromhex("b3" * 32), lib_slot=0
     )
-    asyncio.run(lifespan.store_streamed_block(app, event))
+    asyncio.run(ingestion.store_streamed_block(app, event))
 
     assert stored_heights(app) == [1, 2, 3]
     assert stored(app, "b3" * 32).canonical is True
@@ -248,12 +242,12 @@ def test_streamed_event_fetches_an_unknown_tip(app):
     # After a reconnect the first event's tip can be a block we never saw.
     blocks = chain(3)
     app.state.node_api = FakeNodeApi(blocks)
-    asyncio.run(lifespan.sync_to_node_tip(app))
+    asyncio.run(ingestion.sync_to_node_tip(app))
     for i in (4, 5):
         blocks[f"{i:02x}" * 32] = block_payload(f"{i:02x}" * 32, f"{i - 1:02x}" * 32, i)
     # Event for block 4 arrives, but the node's tip is already block 5.
     event = BlockEvent(
         block=BlockSerializer.model_validate(blocks["04" * 32]), tip=bytes.fromhex("05" * 32), lib_slot=0
     )
-    asyncio.run(lifespan.store_streamed_block(app, event))
+    asyncio.run(ingestion.store_streamed_block(app, event))
     assert stored_heights(app) == [1, 2, 3, 4, 5]

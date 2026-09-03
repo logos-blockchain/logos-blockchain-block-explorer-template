@@ -6,17 +6,12 @@ from contextlib import asynccontextmanager
 from itertools import batched
 from typing import TYPE_CHECKING, AsyncGenerator, List
 
-from core.notifier import ChainNotifier
-from db.blocks import BlockRepository
-from db.channels import ChannelOperationRepository
-from db.clients import SqliteClient
-from db.transaction import TransactionRepository
 from models.block import Block
 from models.header.uncle import UncleHeader
-from node.api.http import BlockEvent, HttpNodeApi
+from node.api.http import BlockEvent
 
 if TYPE_CHECKING:
-    from core.app import NBE
+    from starlette.applications import Starlette
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +22,7 @@ RETRY_INITIAL_SECONDS = 1.0
 RETRY_MAX_SECONDS = 60.0
 
 
-async def sync_to_node_tip(app: "NBE") -> None:
+async def sync_to_node_tip(app: "Starlette") -> None:
     """
     Fetch the node's chain state and store its chain up to the tip, walking parent links
     backwards from the tip (which handles pruned/missing blocks), then flag that chain
@@ -52,20 +47,19 @@ async def sync_to_node_tip(app: "NBE") -> None:
             delay = min(delay * 2, RETRY_MAX_SECONDS)
 
 
-async def follow_node_tip(app: "NBE", tip: bytes) -> None:
+async def follow_node_tip(app: "Starlette", tip: bytes) -> None:
     """Make the node's reported tip the canonical chain, fetching it first if it is missing."""
-    repository = app.state.block_repository
-    if await repository.get_by_hash(tip) is None:
+    db = app.state.db
+    if db.block_by_hash(tip) is None:
         await backfill_chain_from_hash(app, tip.hex())
-        if await repository.get_by_hash(tip) is None:
+        if db.block_by_hash(tip) is None:
             logger.warning(f"Node tip {tip.hex()[:16]}... could not be fetched; canonical chain left unchanged")
             return
-    changed = await repository.set_canonical_tip(tip)
-    if changed:
-        await app.state.chain_notifier.publish()
+    if db.set_canonical_tip(tip):
+        await app.state.notifier.publish()
 
 
-async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
+async def backfill_chain_from_hash(app: "Starlette", block_hash: str) -> None:
     """
     Walk the chain backwards from block_hash until a stored block or genesis, then
     insert the missing blocks oldest-first in batches.
@@ -81,8 +75,7 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
     current_hash = block_hash
 
     while True:
-        existing = await app.state.block_repository.get_by_hash(bytes.fromhex(current_hash))
-        if existing is not None:
+        if app.state.db.block_by_hash(bytes.fromhex(current_hash)) is not None:
             logger.debug(f"Block {current_hash[:16]}... already exists, stopping chain walk")
             break
 
@@ -115,20 +108,17 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
                 block = block_serializer.into_block()
             blocks.append(block)
 
-        # create() detaches the objects, so read what the follow-up needs first.
-        first_slot, last_slot = blocks[0].slot, blocks[-1].slot
-        uncles = [uncle for block in blocks for uncle in block.uncles]
         # Only the oldest batch may start a chain root (its parent is genesis or pruned).
-        await app.state.block_repository.create(blocks, allow_chain_root=(idx == 0))
-        logger.info(f"Backfilled {len(blocks)} blocks (slots {first_slot} to {last_slot})")
-        await backfill_missing_uncles(app, uncles)
+        app.state.db.store_blocks(blocks, allow_chain_root=(idx == 0))
+        logger.info(f"Backfilled {len(blocks)} blocks (slots {blocks[0].slot} to {blocks[-1].slot})")
+        await backfill_missing_uncles(app, [uncle for block in blocks for uncle in block.uncles])
 
 
 # Uncle availability probes are independent reads, so they run concurrently.
 UNCLE_FETCH_CONCURRENCY = 16
 
 
-async def backfill_missing_uncles(app: "NBE", uncles: List[UncleHeader]) -> None:
+async def backfill_missing_uncles(app: "Starlette", uncles: List[UncleHeader]) -> None:
     """Fetch and store referenced uncle blocks the explorer does not have.
 
     The chain walk only visits canonical blocks, so uncles are missing unless
@@ -138,10 +128,10 @@ async def backfill_missing_uncles(app: "NBE", uncles: List[UncleHeader]) -> None
     missing ancestors and uncles are fetched too. Uncles are older than the
     block referencing them, so storing them never moves the canonical tip.
     """
-    repository = app.state.block_repository
+    db = app.state.db
     lib_slot = getattr(app.state, "lib_slot", 0)
     candidates = {uncle.hash: uncle for uncle in uncles if uncle.slot >= lib_slot}
-    missing = [h for h in candidates if await repository.get_by_hash(h) is None]
+    missing = [h for h in candidates if db.block_by_hash(h) is None]
 
     for start in range(0, len(missing), UNCLE_FETCH_CONCURRENCY):
         chunk = missing[start : start + UNCLE_FETCH_CONCURRENCY]
@@ -151,37 +141,27 @@ async def backfill_missing_uncles(app: "NBE", uncles: List[UncleHeader]) -> None
             if block_serializer is None:
                 logger.debug(f"Uncle {uncle_hash.hex()[:16]}... already pruned by the node; skipping")
                 continue
-            if await repository.get_by_hash(uncle_hash) is not None:
+            if db.block_by_hash(uncle_hash) is not None:
                 continue  # stored meanwhile as an ancestor of another uncle
             block = block_serializer.into_block()
-            if await repository.get_by_hash(block.parent_block) is None:
+            if db.block_by_hash(block.parent_block) is None:
                 await backfill_chain_from_hash(app, block.parent_block.hex())
-            nested_uncles = list(block.uncles)
-            block_slot = block.slot
-            await repository.create([block])
-            logger.debug(f"Stored uncle block at slot {block_slot}")
-            await backfill_missing_uncles(app, nested_uncles)
+            db.store_blocks([block])
+            logger.debug(f"Stored uncle block at slot {block.slot}")
+            await backfill_missing_uncles(app, block.uncles)
 
 
 @asynccontextmanager
-async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
-    app.state.node_api = HttpNodeApi(app.settings)
+async def run_ingestion(app: "Starlette") -> AsyncGenerator[None]:
+    """Sync to the node's tip, then follow its block stream until the app shuts down.
 
-    db_client = SqliteClient(sqlite_db_path=app.settings.database_url)
-    app.state.db_client = db_client
-    app.state.block_repository = BlockRepository(db_client)
-    app.state.transaction_repository = TransactionRepository(db_client)
-    app.state.channel_repository = ChannelOperationRepository(db_client)
-    app.state.chain_notifier = ChainNotifier()
-
+    Expects `app.state.db`, `app.state.node_api` and `app.state.notifier`.
+    """
+    await sync_to_node_tip(app)
+    subscription = create_task(subscribe_to_new_blocks(app))
     try:
-        await sync_to_node_tip(app)
-
-        subscription = create_task(subscribe_to_new_blocks(app))
-        app.state.subscription_to_updates_handle = subscription
-
         yield
-
+    finally:
         # The ingestion loop blocks on the node's block stream, so shutdown has
         # to cancel it explicitly or the process never exits on SIGTERM.
         subscription.cancel()
@@ -189,12 +169,9 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
             await subscription
         except CancelledError:
             pass
-    finally:
-        logger.info("Closing node_api connections...")
-        await app.state.node_api.aclose()
 
 
-async def subscribe_to_new_blocks(app: "NBE") -> None:
+async def subscribe_to_new_blocks(app: "Starlette") -> None:
     """Follow the node's block stream forever, reconnecting with backoff when it drops.
 
     A stream ends when the node restarts or the connection breaks; without a
@@ -222,30 +199,29 @@ async def subscribe_to_new_blocks(app: "NBE") -> None:
         delay = min(delay * 2, RETRY_MAX_SECONDS)
 
 
-async def store_streamed_block(app: "NBE", event: BlockEvent) -> None:
+async def store_streamed_block(app: "Starlette", event: BlockEvent) -> None:
     """Store one streamed block (backfilling missing ancestors), then follow the node's tip."""
     try:
         block = event.block.into_block()
         app.state.lib_slot = event.lib_slot
 
-        if await app.state.block_repository.get_by_hash(block.parent_block) is None:
+        db = app.state.db
+        if db.block_by_hash(block.parent_block) is None:
             logger.info(f"Parent block not found for block at slot {block.slot}. Initiating chain backfill...")
             await backfill_chain_from_hash(app, block.parent_block.hex())
 
-            if await app.state.block_repository.get_by_hash(block.parent_block) is None:
+            if db.block_by_hash(block.parent_block) is None:
                 logger.warning(
                     f"Parent block still not found after backfill for block at slot {block.slot}. Skipping block."
                 )
                 return
 
-        block_slot = block.slot  # create() detaches the object from the session
-        uncles = list(block.uncles)
-        await app.state.block_repository.create([block])
-        logger.debug(f"Stored block at slot {block_slot}")
+        db.store_blocks([block])
+        logger.debug(f"Stored block at slot {block.slot}")
 
         # The node's fork choice, not ours: the event says which tip is canonical now.
         await follow_node_tip(app, event.tip)
-        await backfill_missing_uncles(app, uncles)
+        await backfill_missing_uncles(app, block.uncles)
 
     except CancelledError:
         raise
