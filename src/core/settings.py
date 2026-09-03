@@ -28,10 +28,10 @@ def load_dotenv(path: Path = ENV_FILEPATH) -> None:
 
 
 def parse_basic_auth(value: str) -> httpx.BasicAuth:
-    """Value of NBE_NODE_API_AUTH, e.g. "Basic dXNlcjpwYXNz"."""
+    """Value of LBE_NODE_API_AUTH, e.g. "Basic dXNlcjpwYXNz"."""
     scheme, _, credentials = value.strip().partition(" ")
     if scheme.lower() != "basic" or not credentials:
-        raise ValueError(f"Invalid NBE_NODE_API_AUTH: {value!r} (expected 'Basic <base64 user:password>')")
+        raise ValueError(f"Invalid LBE_NODE_API_AUTH: {value!r} (expected 'Basic <base64 user:password>')")
     username, _, password = base64.b64decode(credentials).decode("utf-8").partition(":")
     return httpx.BasicAuth(username, password)
 
@@ -54,15 +54,15 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         env = os.environ
-        auth = env.get("NBE_NODE_API_AUTH")
+        auth = env.get("LBE_NODE_API_AUTH")
         return cls(
-            host=env.get("NBE_HOST", cls.host),
-            port=int(env.get("NBE_PORT", cls.port)),
-            base_path=env.get("NBE_BASE_PATH", "").strip().rstrip("/"),
-            node_api_host=env.get("NBE_NODE_API_HOST", cls.node_api_host),
-            node_api_port=int(env.get("NBE_NODE_API_PORT", cls.node_api_port)),
-            node_api_protocol=env.get("NBE_NODE_API_PROTOCOL", cls.node_api_protocol),
-            node_api_timeout=int(env.get("NBE_NODE_API_TIMEOUT", cls.node_api_timeout)),
+            host=env.get("LBE_HOST", cls.host),
+            port=int(env.get("LBE_PORT", cls.port)),
+            base_path=env.get("LBE_BASE_PATH", "").strip().rstrip("/"),
+            node_api_host=env.get("LBE_NODE_API_HOST", cls.node_api_host),
+            node_api_port=int(env.get("LBE_NODE_API_PORT", cls.node_api_port)),
+            node_api_protocol=env.get("LBE_NODE_API_PROTOCOL", cls.node_api_protocol),
+            node_api_timeout=int(env.get("LBE_NODE_API_TIMEOUT", cls.node_api_timeout)),
             node_api_auth=parse_basic_auth(auth) if auth else None,
-            database_path=env.get("NBE_DATABASE_PATH", cls.database_path),
+            database_path=env.get("LBE_DATABASE_PATH", cls.database_path),
         )

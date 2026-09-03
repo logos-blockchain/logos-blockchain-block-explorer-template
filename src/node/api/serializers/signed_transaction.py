@@ -2,7 +2,7 @@ from typing import List
 
 from pydantic import Field
 
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from models.transactions.transaction import Transaction
 from node.api.serializers.operation import (
     ChannelConfigOpSerializer,
@@ -150,7 +150,7 @@ def _op_to_content(op) -> dict:
     raise ValueError(f"Unsupported mantle op type: {type(op).__name__}")
 
 
-class SignedTransactionSerializer(NbeSerializer):
+class SignedTransactionSerializer(LbeSerializer):
     transaction: TransactionSerializer = Field(alias="mantle_tx", description="Transaction.")
     operations_proofs: List[OperationProofSerializerField] = Field(
         alias="ops_proofs",

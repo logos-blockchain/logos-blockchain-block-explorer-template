@@ -2,7 +2,7 @@
 
 from typing import List, Self
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 from models.block import Block
 from models.header.proof_of_leadership import ProofOfLeadership
@@ -11,7 +11,7 @@ from models.transactions.operations.operation import Operation
 from models.transactions.transaction import Transaction
 
 
-class BlockSummary(NbeSchema):
+class BlockSummary(LbeSchema):
     """Block row for lists and the live stream: no proof, transaction count only."""
 
     id: int
@@ -37,7 +37,7 @@ class BlockSummary(NbeSchema):
         )
 
 
-class BlockRead(NbeSchema):
+class BlockRead(LbeSchema):
     id: int
     hash: HexBytes
     parent_block_hash: HexBytes
@@ -65,7 +65,7 @@ class BlockRead(NbeSchema):
         )
 
 
-class TransactionRead(NbeSchema):
+class TransactionRead(LbeSchema):
     id: int
     block_hash: HexBytes
     hash: HexBytes

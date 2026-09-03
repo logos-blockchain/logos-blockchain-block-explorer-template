@@ -1,10 +1,10 @@
 import logging
 from typing import AsyncIterable, AsyncIterator, Callable, List, Sequence, TypeVar, Union
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.notifier import ChainNotifier
 
-Data = Union[NbeSchema, List[NbeSchema]]
+Data = Union[LbeSchema, List[LbeSchema]]
 Stream = AsyncIterator[Data]
 
 # How long a stream waits for a change notification before re-checking the
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 Row = TypeVar("Row")
 
 
-def _ndjson_line(item: NbeSchema) -> bytes:
+def _ndjson_line(item: LbeSchema) -> bytes:
     return f"{item.model_dump_json()}\n".encode()
 
 

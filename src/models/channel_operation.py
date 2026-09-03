@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Iterator, Optional
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 
 if TYPE_CHECKING:
@@ -27,7 +27,7 @@ def channel_id_of(content) -> Optional[bytes]:
     return channel if isinstance(channel, bytes) else bytes.fromhex(str(channel))
 
 
-class ChannelOperation(NbeSchema):
+class ChannelOperation(LbeSchema):
     """One channel operation, indexed at ingestion time.
 
     Channel activity used to be aggregated on every request from the JSON of

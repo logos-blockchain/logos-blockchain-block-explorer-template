@@ -1,11 +1,11 @@
 from pydantic import Field
 
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from models.transactions.notes import Note
 from node.api.serializers.fields import BytesFromHex
 
 
-class NoteSerializer(NbeSerializer):
+class NoteSerializer(LbeSerializer):
     value: int = Field(description="Integer in u64 format.")
     public_key: BytesFromHex = Field(alias="pk", description="Fr integer.")
 

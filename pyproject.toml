@@ -1,5 +1,5 @@
 [project]
-name = "nomos-block-explorer"
+name = "logos-blockchain-explorer"
 version = "0.1.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [

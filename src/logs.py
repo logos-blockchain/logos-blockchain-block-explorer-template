@@ -2,7 +2,7 @@ import os
 from logging.config import dictConfig
 
 
-def get_logging_config(nbe_log_level: str):
+def get_logging_config(lbe_log_level: str):
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -39,7 +39,7 @@ def get_logging_config(nbe_log_level: str):
         # Application loggers (node.*, db, api.*, ...) propagate to the root.
         "root": {
             "handlers": ["console"],
-            "level": nbe_log_level,
+            "level": lbe_log_level,
         },
         "loggers": {
             # HTTP client libraries
@@ -53,5 +53,5 @@ def get_logging_config(nbe_log_level: str):
 
 
 def setup_logging():
-    nbe_log_level = os.getenv("NBE_LOG_LEVEL", "INFO").upper()
-    dictConfig(get_logging_config(nbe_log_level))
+    lbe_log_level = os.getenv("LBE_LOG_LEVEL", "INFO").upper()
+    dictConfig(get_logging_config(lbe_log_level))

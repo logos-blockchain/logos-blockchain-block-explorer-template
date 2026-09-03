@@ -1,8 +1,8 @@
-# Nomos Block Explorer
+# Logos Blockchain Explorer
 
-This is a Proof of Concept (PoC) for a block explorer for the Nomos blockchain.
+This is a Proof of Concept (PoC) for a block explorer for the Logos blockchain.
 
-![Nomos Block Explorer Screenshot](resources/webui.png)
+![Logos Blockchain Explorer Screenshot](resources/webui.png)
 
 ## Features
 
@@ -20,13 +20,13 @@ This is a Proof of Concept (PoC) for a block explorer for the Nomos blockchain.
 
 ## Architecture
 
-The Nomos Block Explorer follows a three-tier architecture with a clear separation of concerns:
+The Logos Blockchain Explorer follows a three-tier architecture with a clear separation of concerns:
 
 ### High-Level Overview
 
 ```mermaid
 graph LR;
-A[Nomos<br/>Node] -->|REST/SSE| B["Backend<br/>(FastAPI)"]
+A[Logos<br/>Node] -->|REST/SSE| B["Backend<br/>(FastAPI)"]
 B -->|REST/NDJSON| C["Frontend<br/>(Preact)"]
 B <--> D["Database<br/>(SQLite)"]
 ```
@@ -81,26 +81,26 @@ By default, this will try to connect to a local Node API on `127.0.0.1:8080`.
 
 - You can optionally run it via Docker with:
     ```bash
-    docker build -t nomos-block-explorer . && docker run -p 8000:8000 nomos-block-explorer
+    docker build -t logos-blockchain-explorer . && docker run -p 8000:8000 logos-blockchain-explorer
     ```
 
 ### Configuration
 
 The block explorer is configured through environment variables. The following variables are available:
 ```dotenv
-NBE_LOG_LEVEL=DEBUG  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LBE_LOG_LEVEL=DEBUG  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-NBE_NODE_API_HOST=127.0.0.1  # Host, host/path, or a full URL such as https://example.org/node/1
-NBE_NODE_API_PORT=8080  # Ignored when NBE_NODE_API_HOST is a full URL
-NBE_NODE_API_PROTOCOL=http  # Ignored when NBE_NODE_API_HOST is a full URL
-NBE_NODE_API_TIMEOUT=60
-NBE_NODE_API_AUTH="Basic <base64 user:pass>"  # Optional
+LBE_NODE_API_HOST=127.0.0.1  # Host, host/path, or a full URL such as https://example.org/node/1
+LBE_NODE_API_PORT=8080  # Ignored when LBE_NODE_API_HOST is a full URL
+LBE_NODE_API_PROTOCOL=http  # Ignored when LBE_NODE_API_HOST is a full URL
+LBE_NODE_API_TIMEOUT=60
+LBE_NODE_API_AUTH="Basic <base64 user:pass>"  # Optional
 
-NBE_HOST=0.0.0.0  # Block Explorer's listening host
-NBE_PORT=8000  # Block Explorer's listening port
-NBE_BASE_PATH=  # Path prefix when served behind a reverse proxy, e.g. /explorer
+LBE_HOST=0.0.0.0  # Block Explorer's listening host
+LBE_PORT=8000  # Block Explorer's listening port
+LBE_BASE_PATH=  # Path prefix when served behind a reverse proxy, e.g. /explorer
 
-NBE_DATABASE_PATH=sqlite.db  # SQLite database file (defaults to sqlite.db in the repository root)
+LBE_DATABASE_PATH=sqlite.db  # SQLite database file (defaults to sqlite.db in the repository root)
 ```
 A `.env` file in the repository root is loaded at startup; variables already set in the environment win.
 

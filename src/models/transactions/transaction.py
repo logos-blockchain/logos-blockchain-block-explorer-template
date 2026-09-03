@@ -2,12 +2,12 @@ from typing import List, Optional
 
 from pydantic import Field
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 from models.transactions.operations.operation import Operation
 
 
-class Transaction(NbeSchema):
+class Transaction(LbeSchema):
     """A stored transaction. `id` and `block_id` are assigned by the database."""
 
     id: Optional[int] = None

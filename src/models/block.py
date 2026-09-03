@@ -2,14 +2,14 @@ from typing import List, Optional
 
 from pydantic import Field
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 from models.header.proof_of_leadership import ProofOfLeadership
 from models.header.uncle import UncleHeader
 from models.transactions.transaction import Transaction
 
 
-class Block(NbeSchema):
+class Block(LbeSchema):
     """A stored block. `id`, `height`, `canonical` and `canonical_seq` are assigned by the database."""
 
     id: Optional[int] = None

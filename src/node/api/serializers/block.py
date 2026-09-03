@@ -2,21 +2,21 @@ from typing import List
 
 from pydantic import Field
 
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from models.block import Block
 from node.api.serializers.fields import BytesFromHex
 from node.api.serializers.header import HeaderSerializer
 from node.api.serializers.signed_transaction import SignedTransactionSerializer
 
 
-class UncleSerializer(NbeSerializer):
+class UncleSerializer(LbeSerializer):
     """An uncle reference as the node sends it: the competing block's header and its signature."""
 
     header: HeaderSerializer
     signature: BytesFromHex
 
 
-class BlockSerializer(NbeSerializer):
+class BlockSerializer(LbeSerializer):
     header: HeaderSerializer
     # Absent on pre-0.3.0 nodes.
     uncle_headers: List[UncleSerializer] = Field(default_factory=list)
