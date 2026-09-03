@@ -57,9 +57,10 @@ async def stream(
 
 
 async def get(request: NBERequest, block_hash: str) -> Response:
-    if not block_hash:
+    try:
+        block_hash = dehexify(block_hash)
+    except ValueError:
         return Response(status_code=NOT_FOUND)
-    block_hash = dehexify(block_hash)
     block = await request.app.state.block_repository.get_by_hash(block_hash)
     if block is None:
         return Response(status_code=NOT_FOUND)
