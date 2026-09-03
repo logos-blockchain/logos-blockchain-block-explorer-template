@@ -13,8 +13,7 @@ from db.clients import SqliteClient
 from db.transaction import TransactionRepository
 from models.block import Block
 from models.header.uncle import UncleHeader
-from node.api.http import HttpNodeApi
-from node.api.serializers.block import BlockSerializer
+from node.api.http import BlockEvent, HttpNodeApi
 
 if TYPE_CHECKING:
     from core.app import NBE
@@ -28,11 +27,11 @@ RETRY_INITIAL_SECONDS = 1.0
 RETRY_MAX_SECONDS = 60.0
 
 
-async def backfill_to_lib(app: "NBE") -> None:
+async def sync_to_node_tip(app: "NBE") -> None:
     """
-    Fetch the LIB (Last Irreversible Block) from the node and backfill by walking the chain backwards.
-    This traverses parent links instead of querying by slot range, which handles pruned/missing blocks.
-    Retries indefinitely with exponential backoff on failure.
+    Fetch the node's chain state and store its chain up to the tip, walking parent links
+    backwards from the tip (which handles pruned/missing blocks), then flag that chain
+    canonical. Retries indefinitely with exponential backoff on failure.
     """
     delay = RETRY_INITIAL_SECONDS
 
@@ -42,14 +41,28 @@ async def backfill_to_lib(app: "NBE") -> None:
             logger.info(f"Node info: LIB={info.lib}, tip={info.tip}, slot={info.slot}, height={info.height}")
             app.state.lib_slot = info.lib_slot
 
-            await backfill_chain_from_hash(app, info.lib)
+            await backfill_chain_from_hash(app, info.tip)
+            await follow_node_tip(app, bytes.fromhex(info.tip))
             return
 
         except Exception as error:
-            logger.exception(f"Error during initial backfill to LIB: {error}")
-            logger.info(f"Retrying backfill in {delay:.0f}s...")
+            logger.exception(f"Error during initial sync to the node's tip: {error}")
+            logger.info(f"Retrying in {delay:.0f}s...")
             await asyncio.sleep(delay)
             delay = min(delay * 2, RETRY_MAX_SECONDS)
+
+
+async def follow_node_tip(app: "NBE", tip: bytes) -> None:
+    """Make the node's reported tip the canonical chain, fetching it first if it is missing."""
+    repository = app.state.block_repository
+    if await repository.get_by_hash(tip) is None:
+        await backfill_chain_from_hash(app, tip.hex())
+        if await repository.get_by_hash(tip) is None:
+            logger.warning(f"Node tip {tip.hex()[:16]}... could not be fetched; canonical chain left unchanged")
+            return
+    changed = await repository.set_canonical_tip(tip)
+    if changed:
+        await app.state.chain_notifier.publish()
 
 
 async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
@@ -107,7 +120,6 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
         uncles = [uncle for block in blocks for uncle in block.uncles]
         # Only the oldest batch may start a chain root (its parent is genesis or pruned).
         await app.state.block_repository.create(blocks, allow_chain_root=(idx == 0))
-        await app.state.chain_notifier.publish()
         logger.info(f"Backfilled {len(blocks)} blocks (slots {first_slot} to {last_slot})")
         await backfill_missing_uncles(app, uncles)
 
@@ -163,8 +175,7 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
     app.state.chain_notifier = ChainNotifier()
 
     try:
-        # Backfill to LIB on startup
-        await backfill_to_lib(app)
+        await sync_to_node_tip(app)
 
         subscription = create_task(subscribe_to_new_blocks(app))
         app.state.subscription_to_updates_handle = subscription
@@ -196,9 +207,11 @@ async def subscribe_to_new_blocks(app: "NBE") -> None:
 
     while True:
         try:
-            async for block_serializer in app.state.node_api.get_blocks_stream():
+            async for event in app.state.node_api.get_blocks_stream():
+                if delay != RETRY_INITIAL_SECONDS:
+                    logger.info("Reconnected to the node block stream.")
                 delay = RETRY_INITIAL_SECONDS
-                await store_streamed_block(app, block_serializer)
+                await store_streamed_block(app, event)
             logger.warning(f"Node block stream ended; reconnecting in {delay:.0f}s")
         except CancelledError:
             raise
@@ -209,10 +222,11 @@ async def subscribe_to_new_blocks(app: "NBE") -> None:
         delay = min(delay * 2, RETRY_MAX_SECONDS)
 
 
-async def store_streamed_block(app: "NBE", block_serializer: BlockSerializer) -> None:
-    """Store one streamed block, backfilling its ancestors first if they are missing."""
+async def store_streamed_block(app: "NBE", event: BlockEvent) -> None:
+    """Store one streamed block (backfilling missing ancestors), then follow the node's tip."""
     try:
-        block = block_serializer.into_block()
+        block = event.block.into_block()
+        app.state.lib_slot = event.lib_slot
 
         if await app.state.block_repository.get_by_hash(block.parent_block) is None:
             logger.info(f"Parent block not found for block at slot {block.slot}. Initiating chain backfill...")
@@ -227,8 +241,10 @@ async def store_streamed_block(app: "NBE", block_serializer: BlockSerializer) ->
         block_slot = block.slot  # create() detaches the object from the session
         uncles = list(block.uncles)
         await app.state.block_repository.create([block])
-        await app.state.chain_notifier.publish()
         logger.debug(f"Stored block at slot {block_slot}")
+
+        # The node's fork choice, not ours: the event says which tip is canonical now.
+        await follow_node_tip(app, event.tip)
         await backfill_missing_uncles(app, uncles)
 
     except CancelledError:

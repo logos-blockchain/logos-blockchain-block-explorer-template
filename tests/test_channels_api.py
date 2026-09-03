@@ -97,11 +97,21 @@ def request_for(channels):
 
 
 def build_chain(blocks: BlockRepository, txs_per_height: list[list[Transaction]]) -> None:
-    """Linear chain: block at height h+1 (slot h*10) holds txs_per_height[h]. Genesis is slot 0."""
+    """Linear canonical chain: block at height h+1 (slot h*10) holds txs_per_height[h]. Genesis is slot 0."""
     chain = [make_block(block_hash(1), parent=b"\0" * 32, slot=0, transactions=[])]
     for i, txs in enumerate(txs_per_height, start=2):
         chain.append(make_block(block_hash(i), parent=block_hash(i - 1), slot=(i - 1) * 10, transactions=txs))
+    tip = chain[-1].hash  # create() detaches the objects
     asyncio.run(blocks.create(chain, allow_chain_root=True))
+    asyncio.run(blocks.set_canonical_tip(tip))
+
+
+def extend(blocks: BlockRepository, block: Block, *, tip: bool) -> None:
+    """Store one more block; make it the node's tip if `tip`."""
+    block_hash_ = block.hash
+    asyncio.run(blocks.create([block]))
+    if tip:
+        asyncio.run(blocks.set_canonical_tip(block_hash_))
 
 
 def test_channel_ops_are_indexed_at_ingestion(client, blocks):
@@ -193,25 +203,25 @@ def test_get_channel_rejects_malformed_id(request_for):
 
 def test_channels_follow_the_canonical_chain(blocks, request_for):
     build_chain(blocks, [[make_tx(1, [inscribe(CH_A)])]])  # genesis(1) <- block 2 (height 2)
-    asyncio.run(
-        blocks.create(
-            [make_block(block_hash(3), parent=block_hash(2), slot=20, transactions=[make_tx(2, [inscribe(CH_A)])])]
-        )
+    extend(
+        blocks,
+        make_block(block_hash(3), parent=block_hash(2), slot=20, transactions=[make_tx(2, [inscribe(CH_A)])]),
+        tip=True,
     )
-    # A same-height sibling with a CH_B op is not canonical, so it does not count.
-    asyncio.run(
-        blocks.create(
-            [make_block(block_hash(4), parent=block_hash(2), slot=21, transactions=[make_tx(3, [inscribe(CH_B)])])]
-        )
+    # A competing block with a CH_B op that the node does not follow does not count.
+    extend(
+        blocks,
+        make_block(block_hash(4), parent=block_hash(2), slot=21, transactions=[make_tx(3, [inscribe(CH_B)])]),
+        tip=False,
     )
     payload = loads(asyncio.run(list_channels(request_for, limit=8, ops_limit=25)).body)
     assert {ch["channel_id"]: ch["op_count"] for ch in payload["channels"]} == {CH_A.hex(): 2}
 
-    # Extending the sibling branch makes it the longest chain: block 3's op drops out, CH_B's ops appear.
-    asyncio.run(
-        blocks.create(
-            [make_block(block_hash(5), parent=block_hash(4), slot=22, transactions=[make_tx(4, [inscribe(CH_B)])])]
-        )
+    # The node switches to the competing branch: block 3's op drops out, CH_B's ops appear.
+    extend(
+        blocks,
+        make_block(block_hash(5), parent=block_hash(4), slot=22, transactions=[make_tx(4, [inscribe(CH_B)])]),
+        tip=True,
     )
     payload = loads(asyncio.run(list_channels(request_for, limit=8, ops_limit=25)).body)
     assert {ch["channel_id"]: ch["op_count"] for ch in payload["channels"]} == {CH_B.hex(): 2, CH_A.hex(): 1}
