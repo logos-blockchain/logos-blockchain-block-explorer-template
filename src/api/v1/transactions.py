@@ -1,52 +1,43 @@
 from http.client import NOT_FOUND
-from typing import TYPE_CHECKING, AsyncIterator, List, Optional
+from typing import List
 
 from fastapi import Query
 from starlette.responses import JSONResponse, Response
 
-from api.streams import into_ndjson_stream
+from api.streams import follow_chain, into_ndjson_stream
 from api.v1.serializers.transactions import TransactionRead
 from core.api import NBERequest, NDJsonStreamingResponse
 from core.types import dehexify
-from models.transactions.transaction import Transaction
-
-if TYPE_CHECKING:
-    from core.app import NBE
-
-
-async def _get_transactions_stream_serialized(
-    app: "NBE", transaction_from: Optional[Transaction], *, fork: int
-) -> AsyncIterator[List[TransactionRead]]:
-    _stream = app.state.transaction_repository.updates_stream(transaction_from, fork=fork)
-    async for transactions in _stream:
-        yield [TransactionRead.from_transaction(transaction) for transaction in transactions]
 
 
 async def stream(
     request: NBERequest,
     prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0),
-    fork: int = Query(...),
 ) -> Response:
-    latest_transactions: List[Transaction] = await request.app.state.transaction_repository.get_latest(
-        prefetch_limit, fork=fork
-    )
-    latest_transaction = latest_transactions[-1] if latest_transactions else None
-    bootstrap_transactions = [TransactionRead.from_transaction(transaction) for transaction in latest_transactions]
+    """The newest `prefetch-limit` canonical transactions, then every one whose block becomes canonical."""
+    repository = request.app.state.transaction_repository
+    latest = await repository.get_latest(prefetch_limit)
+    bootstrap: List[TransactionRead] = [TransactionRead.from_transaction(transaction) for transaction in latest]
+    after = await request.app.state.block_repository.max_canonical_seq()
 
-    transactions_stream: AsyncIterator[List[TransactionRead]] = _get_transactions_stream_serialized(
-        request.app, latest_transaction, fork=fork
-    )
-    ndjson_transactions_stream = into_ndjson_stream(transactions_stream, bootstrap_data=bootstrap_transactions)
-    return NDJsonStreamingResponse(ndjson_transactions_stream)
+    async def reads():
+        async for transactions in follow_chain(
+            request.app.state.chain_notifier,
+            repository.get_since,
+            after=after,
+            cursor_of=lambda transaction: transaction.block.canonical_seq,
+        ):
+            yield [TransactionRead.from_transaction(transaction) for transaction in transactions]
+
+    return NDJsonStreamingResponse(into_ndjson_stream(reads(), bootstrap_data=bootstrap))
 
 
 async def list_transactions(
     request: NBERequest,
     page: int = Query(0, ge=0),
     page_size: int = Query(10, ge=1, le=100, alias="page-size"),
-    fork: int = Query(...),
 ) -> Response:
-    transactions, total_count = await request.app.state.transaction_repository.get_paginated(page, page_size, fork=fork)
+    transactions, total_count = await request.app.state.transaction_repository.get_paginated(page, page_size)
     total_pages = (total_count + page_size - 1) // page_size
 
     return JSONResponse(
@@ -60,12 +51,13 @@ async def list_transactions(
     )
 
 
-async def get(request: NBERequest, transaction_hash: str, fork: int = Query(...)) -> Response:
+async def get(request: NBERequest, transaction_hash: str) -> Response:
+    """A transaction by hash: the canonical copy if there is one, else the copy in an orphaned block."""
     try:
         transaction_hash = dehexify(transaction_hash)
     except ValueError:
         return Response(status_code=NOT_FOUND)
-    transaction = await request.app.state.transaction_repository.get_by_hash(transaction_hash, fork=fork)
+    transaction = await request.app.state.transaction_repository.get_by_hash(transaction_hash)
     if transaction is None:
         return Response(status_code=NOT_FOUND)
     return JSONResponse(TransactionRead.from_transaction(transaction).model_dump(mode="json"))

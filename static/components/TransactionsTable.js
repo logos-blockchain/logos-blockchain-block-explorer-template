@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { API, PAGE } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
 import { shortenHex, streamNdjson } from '../lib/utils.js';
-import { subscribeFork } from '../lib/fork.js';
 import { opLabel, transferOutputs, tryDecodeUtf8Hex } from '../lib/format.js';
 
 const OPERATIONS_PREVIEW_LIMIT = 2;
@@ -57,25 +56,19 @@ export default function TransactionsTable({ live, onDisableLive }) {
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [fork, setFork] = useState(null);
 
     const abortRef = useRef(null);
     const seenKeysRef = useRef(new Set());
 
-    // Subscribe to fork-choice changes
-    useEffect(() => {
-        return subscribeFork((newFork) => setFork(newFork));
-    }, []);
-
     // Fetch paginated transactions
-    const fetchTransactions = useCallback(async (pageNum, currentFork) => {
+    const fetchTransactions = useCallback(async (pageNum) => {
         abortRef.current?.abort();
         seenKeysRef.current.clear();
 
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(API.TRANSACTIONS_LIST(pageNum, TABLE_SIZE, currentFork));
+            const res = await fetch(API.TRANSACTIONS_LIST(pageNum, TABLE_SIZE));
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             setTransactions(data.transactions.map(normalize));
@@ -90,7 +83,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
     }, []);
 
     // Start live streaming
-    const startLiveStream = useCallback((currentFork) => {
+    const startLiveStream = useCallback(() => {
         abortRef.current?.abort();
         abortRef.current = new AbortController();
         seenKeysRef.current.clear();
@@ -100,14 +93,12 @@ export default function TransactionsTable({ live, onDisableLive }) {
 
         let liveTxs = [];
 
-        const url = `${API.TRANSACTIONS_STREAM_WITH_FORK(currentFork)}&prefetch-limit=${encodeURIComponent(TABLE_SIZE)}`;
         streamNdjson(
-            url,
+            API.TRANSACTIONS_STREAM(TABLE_SIZE),
             (raw) => {
                 const tx = normalize(raw);
-                const key = `${tx.id}:${tx.hash}`;
-                if (seenKeysRef.current.has(key)) return;
-                seenKeysRef.current.add(key);
+                if (seenKeysRef.current.has(tx.hash)) return;
+                seenKeysRef.current.add(tx.hash);
 
                 liveTxs = [tx, ...liveTxs].slice(0, TABLE_SIZE);
                 setTransactions([...liveTxs]);
@@ -125,27 +116,24 @@ export default function TransactionsTable({ live, onDisableLive }) {
         );
     }, []);
 
-    // Handle live mode and fork changes
     useEffect(() => {
-        if (fork == null) return;
         if (live) {
-            startLiveStream(fork);
+            startLiveStream();
         } else {
             setPage(0);
-            fetchTransactions(0, fork);
+            fetchTransactions(0);
         }
         return () => abortRef.current?.abort();
-    }, [live, fork, startLiveStream]);
+    }, [live, startLiveStream, fetchTransactions]);
 
     // Go to a page (or exit live mode into page 0)
     const goToPage = (newPage) => {
-        if (fork == null) return;
         if (live) {
             onDisableLive?.();
             return; // useEffect will handle fetching page 0 when live changes
         }
         if (newPage >= 0) {
-            fetchTransactions(newPage, fork);
+            fetchTransactions(newPage);
         }
     };
 

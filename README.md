@@ -53,6 +53,7 @@ B <--> D["Database<br/>(SQLite)"]
 2. **Backfilling**: After at least one block is in the database, the backend fetches historical blocks from the node and stores them
 3. **Client Updates**: Frontend subscribes to SSE endpoints for real-time block and transaction updates
 4. **Data Access**: All queries route through repository classes for consistent data access
+5. **Canonical chain**: Ingestion flags the blocks on the longest known chain; every read serves that chain, and a longer competing branch flips the flags above the common ancestor
 
 #### 4. Key Design Patterns
 
@@ -119,7 +120,6 @@ This PoC makes simplifications to focus on the core features:
 - Database
   - Update to Postgres
   - Add migrations management
-  - Add relevant indexes to columns
 - Add interfaces to database repositories: `BlockRepository` and `TransactionRepository`
 - Add tests
 - Colour logs by level

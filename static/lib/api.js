@@ -5,40 +5,39 @@ const API_PREFIX = `${BASE_PATH}/api/v1`;
 
 const joinUrl = (...parts) => parts.join('/').replace(/\/{2,}/g, '/');
 const encodeHash = (hash) => encodeURIComponent(String(hash));
+const query = (params) =>
+    Object.entries(params)
+        .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+        .join('&');
 
 const HEALTH_ENDPOINT = joinUrl(API_PREFIX, 'health/stream');
 
-const TRANSACTION_DETAIL_BY_HASH = (hash, fork) =>
-    `${joinUrl(API_PREFIX, 'transactions', encodeHash(hash))}?fork=${encodeURIComponent(fork)}`;
-
-const FORK_CHOICE = joinUrl(API_PREFIX, 'fork-choice');
-
 const BLOCK_DETAIL_BY_HASH = (hash) => joinUrl(API_PREFIX, 'blocks', encodeHash(hash));
-const BLOCKS_STREAM = (fork) => `${joinUrl(API_PREFIX, 'blocks/stream')}?fork=${encodeURIComponent(fork)}`;
-const BLOCKS_LIST = (page, pageSize, fork) =>
-    `${joinUrl(API_PREFIX, 'blocks/list')}?page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}&fork=${encodeURIComponent(fork)}`;
+const BLOCKS_STREAM = (prefetchLimit) =>
+    `${joinUrl(API_PREFIX, 'blocks/stream')}?${query({ 'prefetch-limit': prefetchLimit })}`;
+const BLOCKS_LIST = (page, pageSize) =>
+    `${joinUrl(API_PREFIX, 'blocks/list')}?${query({ page, 'page-size': pageSize })}`;
 
-const CHANNELS_LIST = (fork, limit, opsLimit) =>
-    `${joinUrl(API_PREFIX, 'channels/list')}?fork=${encodeURIComponent(fork)}&limit=${encodeURIComponent(limit)}&ops-limit=${encodeURIComponent(opsLimit)}`;
-const CHANNEL_DETAIL_BY_ID = (channelId, fork, page, pageSize) =>
-    `${joinUrl(API_PREFIX, 'channels', encodeHash(channelId))}?fork=${encodeURIComponent(fork)}&page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}`;
+const TRANSACTION_DETAIL_BY_HASH = (hash) => joinUrl(API_PREFIX, 'transactions', encodeHash(hash));
+const TRANSACTIONS_STREAM = (prefetchLimit) =>
+    `${joinUrl(API_PREFIX, 'transactions/stream')}?${query({ 'prefetch-limit': prefetchLimit })}`;
+const TRANSACTIONS_LIST = (page, pageSize) =>
+    `${joinUrl(API_PREFIX, 'transactions/list')}?${query({ page, 'page-size': pageSize })}`;
 
-const NOTE_SEARCH = (noteId, fork) =>
-    `${joinUrl(API_PREFIX, 'notes', encodeHash(noteId))}?fork=${encodeURIComponent(fork)}`;
+const CHANNELS_LIST = (limit, opsLimit) =>
+    `${joinUrl(API_PREFIX, 'channels/list')}?${query({ limit, 'ops-limit': opsLimit })}`;
+const CHANNEL_DETAIL_BY_ID = (channelId, page, pageSize) =>
+    `${joinUrl(API_PREFIX, 'channels', encodeHash(channelId))}?${query({ page, 'page-size': pageSize })}`;
 
-const TRANSACTIONS_STREAM_WITH_FORK = (fork) =>
-    `${joinUrl(API_PREFIX, 'transactions/stream')}?fork=${encodeURIComponent(fork)}`;
-const TRANSACTIONS_LIST = (page, pageSize, fork) =>
-    `${joinUrl(API_PREFIX, 'transactions/list')}?page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}&fork=${encodeURIComponent(fork)}`;
+const NOTE_SEARCH = (noteId) => joinUrl(API_PREFIX, 'notes', encodeHash(noteId));
 
 export const API = {
     HEALTH_ENDPOINT,
-    FORK_CHOICE,
     CHANNELS_LIST,
     CHANNEL_DETAIL_BY_ID,
     NOTE_SEARCH,
     TRANSACTION_DETAIL_BY_HASH,
-    TRANSACTIONS_STREAM_WITH_FORK,
+    TRANSACTIONS_STREAM,
     TRANSACTIONS_LIST,
     BLOCK_DETAIL_BY_HASH,
     BLOCKS_STREAM,

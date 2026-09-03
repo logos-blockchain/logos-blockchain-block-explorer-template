@@ -3,12 +3,11 @@ import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
-import { subscribeFork } from '../lib/fork.js';
 import { fieldLabel, opLabel, renderBytes, toLocaleNum, toNumber, tryDecodeUtf8Hex } from '../lib/format.js';
 import { CopyPill, FieldValue, OpPills } from '../components/Common.js';
 
 // ————— normalizer for TransactionRead —————
-// { id, block_hash, hash, operations:[Operation], execution_gas_price, storage_gas_price }
+// { id, block_hash, hash, canonical, operations:[Operation] }
 // Ledger transfers are now an Operation with content.type === 'LedgerTransfer'.
 function normalizeTransaction(raw) {
     const ops = Array.isArray(raw?.operations) ? raw.operations : Array.isArray(raw?.ops) ? raw.ops : [];
@@ -18,8 +17,7 @@ function normalizeTransaction(raw) {
         blockHash: raw?.block_hash ?? null,
         hash: renderBytes(raw?.hash),
         operations: ops,
-        executionGasPrice: toNumber(raw?.execution_gas_price),
-        storageGasPrice: toNumber(raw?.storage_gas_price),
+        canonical: raw?.canonical !== false,
     };
 }
 
@@ -40,6 +38,13 @@ function Summary({ tx }) {
         h(
             'div',
             { style: 'display:grid; gap:8px;' },
+
+            !tx.canonical &&
+                h(
+                    'div',
+                    { class: 'error-note' },
+                    'This transaction is only in an orphaned block; it is not on the canonical chain.',
+                ),
 
             // Block link
             tx.blockHash != null &&
@@ -65,20 +70,6 @@ function Summary({ tx }) {
                     String(tx.hash || ''),
                 ),
                 h(CopyPill, { text: tx.hash }),
-            ),
-
-            // Gas
-            h(
-                'div',
-                null,
-                h('b', null, 'Execution Gas: '),
-                h('span', { class: 'mono' }, toLocaleNum(tx.executionGasPrice)),
-            ),
-            h(
-                'div',
-                null,
-                h('b', null, 'Storage Gas: '),
-                h('span', { class: 'mono' }, toLocaleNum(tx.storageGasPrice)),
             ),
 
             // Operations (labels as pills)
@@ -340,11 +331,6 @@ export default function TransactionDetail({ parameters }) {
 
     const [tx, setTx] = useState(null);
     const [err, setErr] = useState(null); // { kind: 'invalid'|'not-found'|'network', msg: string }
-    const [fork, setFork] = useState(null);
-
-    useEffect(() => {
-        return subscribeFork((newFork) => setFork(newFork));
-    }, []);
 
     const pageTitle = useMemo(() => `Transaction ${shortenHex(transactionHash)}`, [transactionHash]);
     useEffect(() => {
@@ -360,14 +346,12 @@ export default function TransactionDetail({ parameters }) {
             return;
         }
 
-        if (fork == null) return;
-
         let alive = true;
         const controller = new AbortController();
 
         (async () => {
             try {
-                const res = await fetch(API.TRANSACTION_DETAIL_BY_HASH(transactionHash, fork), {
+                const res = await fetch(API.TRANSACTION_DETAIL_BY_HASH(transactionHash), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
@@ -389,7 +373,7 @@ export default function TransactionDetail({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [transactionHash, isValidHash, fork]);
+    }, [transactionHash, isValidHash]);
 
     return h(
         'main',
