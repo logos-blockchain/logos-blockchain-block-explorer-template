@@ -203,11 +203,22 @@ function InputsTable({ inputs }) {
                         h(
                             'td',
                             null,
-                            h(
-                                'span',
-                                { class: 'mono', style: 'overflow-wrap:anywhere; word-break:break-word;' },
-                                String(fr),
-                            ),
+                            /^[0-9a-f]{64}$/i.test(String(fr))
+                                ? h(
+                                      'a',
+                                      {
+                                          class: 'linkish mono',
+                                          style: 'overflow-wrap:anywhere; word-break:break-word;',
+                                          href: PAGE.NOTE_DETAIL(String(fr)),
+                                          title: 'Find transactions referencing this note',
+                                      },
+                                      String(fr),
+                                  )
+                                : h(
+                                      'span',
+                                      { class: 'mono', style: 'overflow-wrap:anywhere; word-break:break-word;' },
+                                      String(fr),
+                                  ),
                         ),
                     ),
                 ),

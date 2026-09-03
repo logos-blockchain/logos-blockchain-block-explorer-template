@@ -24,6 +24,9 @@ const CHANNELS_LIST = (fork, limit, opsLimit) =>
 const CHANNEL_DETAIL_BY_ID = (channelId, fork, page, pageSize) =>
     `${joinUrl(API_PREFIX, 'channels', encodeHash(channelId))}?fork=${encodeURIComponent(fork)}&page=${encodeURIComponent(page)}&page-size=${encodeURIComponent(pageSize)}`;
 
+const NOTE_SEARCH = (noteId, fork) =>
+    `${joinUrl(API_PREFIX, 'notes', encodeHash(noteId))}?fork=${encodeURIComponent(fork)}`;
+
 const TRANSACTIONS_STREAM_WITH_FORK = (fork) =>
     `${joinUrl(API_PREFIX, 'transactions/stream')}?fork=${encodeURIComponent(fork)}`;
 const TRANSACTIONS_LIST = (page, pageSize, fork) =>
@@ -34,6 +37,7 @@ export const API = {
     FORK_CHOICE,
     CHANNELS_LIST,
     CHANNEL_DETAIL_BY_ID,
+    NOTE_SEARCH,
     TRANSACTION_DETAIL_BY_HASH,
     TRANSACTIONS_STREAM,
     TRANSACTIONS_STREAM_WITH_FORK,
@@ -46,9 +50,11 @@ export const API = {
 const BLOCK_DETAIL = (hash) => joinUrl(`${BASE_PATH}/blocks`, encodeHash(hash));
 const TRANSACTION_DETAIL = (hash) => joinUrl(`${BASE_PATH}/transactions`, encodeHash(hash));
 const CHANNEL_DETAIL = (channelId) => joinUrl(`${BASE_PATH}/channel`, encodeHash(channelId));
+const NOTE_DETAIL = (noteId) => joinUrl(`${BASE_PATH}/notes`, encodeHash(noteId));
 
 export const PAGE = {
     BLOCK_DETAIL,
     TRANSACTION_DETAIL,
     CHANNEL_DETAIL,
+    NOTE_DETAIL,
 };

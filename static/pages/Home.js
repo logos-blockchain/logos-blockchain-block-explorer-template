@@ -3,6 +3,7 @@ import { useState } from 'preact/hooks';
 import BlocksTable from '../components/BlocksTable.js';
 import TransactionsTable from '../components/TransactionsTable.js';
 import ChannelsPanel from '../components/ChannelsPanel.js';
+import NoteSearchBar from '../components/NoteSearchBar.js';
 
 export default function HomeView() {
     const [live, setLive] = useState(true);
@@ -14,7 +15,8 @@ export default function HomeView() {
         { class: 'wrap' },
         h(
             'div',
-            { style: 'display:flex; justify-content:flex-end; margin-bottom:12px;' },
+            { style: 'display:flex; gap:12px; align-items:flex-start; justify-content:space-between; margin-bottom:12px;' },
+            h(NoteSearchBar, null),
             h(
                 'button',
                 {

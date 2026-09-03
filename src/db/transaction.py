@@ -2,7 +2,7 @@ from asyncio import sleep
 from typing import AsyncIterator, List
 
 from rusty_results import Empty, Option, Some
-from sqlalchemy import Result, Select, func as sa_func
+from sqlalchemy import Result, Select, String, cast, func as sa_func
 from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import select
 
@@ -76,6 +76,29 @@ class TransactionRepository:
 
         statement = get_latest_statement(
             limit, fork=fork, output_ascending=ascending, preload_relationships=preload_relationships
+        )
+
+        with self.client.session() as session:
+            results: Result[Transaction] = session.exec(statement)
+            return results.all()
+
+    async def search_by_note_id(self, note_id: bytes, *, fork: int, limit: int) -> List[Transaction]:
+        """
+        Transactions whose operations JSON contains the note id's hex, newest first.
+
+        This is a textual prefilter: the hex could in principle appear in a
+        non-note field (signature, public key, metadata), so callers must
+        verify which operations actually reference the note.
+        """
+        chain = chain_block_ids_cte(fork=fork)
+        statement = (
+            select(Transaction)
+            .options(selectinload(Transaction.block))
+            .join(Block, Transaction.block_id == Block.id)
+            .join(chain, Block.id == chain.c.id)
+            .where(cast(Transaction.operations, String).like(f"%{note_id.hex()}%"))
+            .order_by(Block.height.desc(), Transaction.id.desc())
+            .limit(limit)
         )
 
         with self.client.session() as session:
