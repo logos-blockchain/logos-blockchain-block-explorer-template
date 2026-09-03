@@ -191,6 +191,11 @@ export default function BlockDetailPage({ parameters }) {
                             { style: 'margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;' },
                             height != null && h('span', { class: 'pill', title: 'Height' }, `Height ${String(height)}`),
                             slot != null && h('span', { class: 'pill', title: 'Slot' }, `Slot ${String(slot)}`),
+                            h(
+                                'span',
+                                { class: 'pill', title: 'Competing blocks referenced by this block' },
+                                `${uncles.length} uncle${uncles.length === 1 ? '' : 's'}`,
+                            ),
                             block?.canonical === false &&
                                 h('span', { class: 'pill', title: 'Not on the canonical chain' }, 'Orphaned'),
                         ),
