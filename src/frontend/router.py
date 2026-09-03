@@ -1,4 +1,4 @@
-from http.client import SERVICE_UNAVAILABLE
+from http.client import NOT_FOUND
 
 from fastapi import APIRouter, HTTPException
 from starlette.requests import Request
@@ -12,7 +12,8 @@ INDEX_TEMPLATE = INDEX_FILE.read_text()
 
 def spa(request: Request, path: str) -> HTMLResponse:
     if path.startswith(("api", "static")):
-        raise HTTPException(SERVICE_UNAVAILABLE, detail="Routing is incorrectly configured.")
+        # Not a page: an API route or asset that does not exist.
+        raise HTTPException(NOT_FOUND)
     root_path = request.scope.get("root_path", "")
     base_path = root_path.rstrip("/") + "/"
     html = INDEX_TEMPLATE.replace("__BASE_PATH__", base_path)

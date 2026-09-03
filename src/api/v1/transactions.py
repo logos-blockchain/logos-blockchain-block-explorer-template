@@ -14,15 +14,18 @@ async def stream(
     request: NBERequest,
     prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0),
 ) -> Response:
-    """The newest `prefetch-limit` canonical transactions, then every new one as it is ingested."""
+    """The newest `prefetch-limit` canonical transactions, then every one whose block becomes canonical."""
     repository = request.app.state.transaction_repository
     latest = await repository.get_latest(prefetch_limit)
     bootstrap: List[TransactionRead] = [TransactionRead.from_transaction(transaction) for transaction in latest]
-    after_id = max((transaction.id for transaction in latest), default=0)
+    after = await request.app.state.block_repository.max_canonical_seq()
 
     async def reads():
         async for transactions in follow_chain(
-            request.app.state.chain_notifier, repository.get_since, after_id=after_id
+            request.app.state.chain_notifier,
+            repository.get_since,
+            after=after,
+            cursor_of=lambda transaction: transaction.block.canonical_seq,
         ):
             yield [TransactionRead.from_transaction(transaction) for transaction in transactions]
 
@@ -49,6 +52,7 @@ async def list_transactions(
 
 
 async def get(request: NBERequest, transaction_hash: str) -> Response:
+    """A transaction by hash: the canonical copy if there is one, else the copy in an orphaned block."""
     try:
         transaction_hash = dehexify(transaction_hash)
     except ValueError:

@@ -8,6 +8,7 @@ from core.models import IdNbeModel
 from core.sqlmodel import PydanticJsonColumn
 from core.types import HexBytes
 from models.header.proof_of_leadership import ProofOfLeadership
+from models.header.uncle import UncleHeader
 
 if TYPE_CHECKING:
     from models.transactions.transaction import Transaction
@@ -32,9 +33,17 @@ class Block(IdNbeModel, table=True):
     # by BlockRepository at insert time; a reorg flips the flag on the blocks
     # above the common ancestor.
     canonical: bool = Field(nullable=False, default=False)
+    # Monotonic stamp taken whenever a block becomes canonical. Live streams
+    # cursor on it, so a block that turns canonical in a reorg is still
+    # delivered even though its row id is older than blocks already sent.
+    canonical_seq: int = Field(nullable=False, default=0, index=True)
     block_root: HexBytes = Field(nullable=False)
     proof_of_leadership: ProofOfLeadership = Field(
         sa_column=Column(PydanticJsonColumn(ProofOfLeadership), nullable=False)
+    )
+    # Competing blocks this block references (Bedrock uncle references).
+    uncles: List[UncleHeader] = Field(
+        default_factory=list, sa_column=Column(PydanticJsonColumn(UncleHeader, many=True), nullable=False)
     )
 
     # --- Relationships --- #

@@ -60,7 +60,6 @@ class ChannelTransfer(NbeContent):
 
 class SDPDeclareServiceType(Enum):
     BN = "BN"
-    DA = "DA"
 
 
 class SDPDeclare(NbeContent):

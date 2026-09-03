@@ -5,7 +5,7 @@ from node.api.serializers.proof_of_leadership import ProofOfLeadershipSerializer
 
 
 class HeaderSerializer(NbeSerializer):
-    hash: BytesFromHex = Field(default=b"", alias="id", description="Hash id in hex format.")
+    hash: BytesFromHex = Field(alias="id", description="Block hash in hex format.")
     parent_block: BytesFromHex = Field(description="Hash in hex format.")
     slot: int = Field(description="Integer in u64 format.")
     # Node 0.3.0 renamed this to body_root (it now commits to uncle headers as

@@ -33,14 +33,19 @@ async def stream(
     request: NBERequest,
     prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0),
 ) -> Response:
-    """The newest `prefetch-limit` canonical blocks, then every new one as it is ingested."""
+    """The newest `prefetch-limit` canonical blocks, then every block that becomes canonical from now on."""
     repository = request.app.state.block_repository
     latest_blocks = await repository.get_latest(prefetch_limit)
     bootstrap: List[BlockSummary] = [BlockSummary.from_block(block) for block in latest_blocks]
-    after_id = max((block.id for block in latest_blocks), default=0)
+    after = await repository.max_canonical_seq()
 
     async def summaries():
-        async for blocks in follow_chain(request.app.state.chain_notifier, repository.get_since, after_id=after_id):
+        async for blocks in follow_chain(
+            request.app.state.chain_notifier,
+            repository.get_since,
+            after=after,
+            cursor_of=lambda block: block.canonical_seq,
+        ):
             yield [BlockSummary.from_block(block) for block in blocks]
 
     return NDJsonStreamingResponse(into_ndjson_stream(summaries(), bootstrap_data=bootstrap))

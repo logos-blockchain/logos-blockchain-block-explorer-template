@@ -46,20 +46,23 @@ async def follow_chain(
     notifier: ChainNotifier,
     fetch_since: Callable[[int], Awaitable[Sequence[Row]]],
     *,
-    after_id: int,
+    after: int,
+    cursor_of: Callable[[Row], int],
 ) -> AsyncIterator[List[Row]]:
-    """Yield batches of rows with id > cursor as ingestion commits them.
+    """Yield batches of rows past a cursor as ingestion commits them.
 
-    `fetch_since(cursor)` must return rows ordered by id. The notifier version
-    is read before each fetch so a commit landing between the fetch and the
-    wait is never missed.
+    `fetch_since(cursor)` must return rows in ascending `cursor_of` order. The
+    cursor is the canonical sequence (see Block.canonical_seq), so a block that
+    becomes canonical in a reorg is delivered even if its row id is old. The
+    notifier version is read before each fetch so a commit landing between the
+    fetch and the wait is never missed.
     """
-    cursor = after_id
+    cursor = after
     while True:
         version = notifier.version
         rows = await fetch_since(cursor)
         if rows:
-            cursor = rows[-1].id
+            cursor = max(cursor_of(row) for row in rows)
             yield list(rows)
             continue
         await notifier.wait_for_change(version, timeout=STREAM_RECHECK_SECONDS)

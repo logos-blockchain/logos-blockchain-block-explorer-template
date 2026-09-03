@@ -57,9 +57,7 @@ def transfer() -> dict:
 
 
 def make_tx(seed: int, operations: list[dict]) -> Transaction:
-    return Transaction.model_validate(
-        {"hash": seed.to_bytes(32, "big"), "operations": operations, "execution_gas_price": 0, "storage_gas_price": 0}
-    )
+    return Transaction.model_validate({"hash": seed.to_bytes(32, "big"), "operations": operations})
 
 
 def make_block(hash: bytes, parent: bytes, slot: int, transactions: list[Transaction]) -> Block:

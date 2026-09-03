@@ -24,7 +24,15 @@ class TransactionRepository:
         self.client = client
 
     async def get_by_hash(self, transaction_hash: bytes) -> Optional[Transaction]:
-        statement = _canonical_transactions().where(Transaction.hash == transaction_hash)
+        """The canonical copy if one exists, otherwise the copy from an orphaned block."""
+        statement = (
+            select(Transaction)
+            .options(selectinload(Transaction.block))
+            .join(Block, Transaction.block_id == Block.id)
+            .where(Transaction.hash == transaction_hash)
+            .order_by(Block.canonical.desc(), Block.height.desc())
+            .limit(1)
+        )
         with self.client.session() as session:
             result: Result[Transaction] = session.exec(statement)
             return result.first()
@@ -38,11 +46,16 @@ class TransactionRepository:
         with self.client.session() as session:
             return list(reversed(session.exec(statement).all()))
 
-    async def get_since(self, transaction_id: int, *, limit: int = 500) -> List[Transaction]:
-        """Canonical transactions inserted after `transaction_id`, oldest-first. Drives the live stream."""
-        statement = _canonical_transactions().where(Transaction.id > transaction_id).order_by(Transaction.id.asc())
+    async def get_since(self, canonical_seq: int, *, limit: int = 500) -> List[Transaction]:
+        """Transactions whose block became canonical after stamp `canonical_seq`, in chain order."""
+        statement = (
+            _canonical_transactions()
+            .where(Block.canonical_seq > canonical_seq)
+            .order_by(Block.canonical_seq.asc(), Block.height.asc(), Transaction.id.asc())
+            .limit(limit)
+        )
         with self.client.session() as session:
-            return session.exec(statement.limit(limit)).all()
+            return session.exec(statement).all()
 
     async def search_by_note_id(self, note_id: bytes, *, limit: int) -> List[Transaction]:
         """
