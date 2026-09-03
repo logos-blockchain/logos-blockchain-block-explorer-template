@@ -7,8 +7,6 @@ WORKDIR /app
 # Environment variables
 ENV PYTHONPATH=/app:/app/src
 ENV UV_INSTALL_DIR=/usr/local/bin
-ENV NBE_NODE_API=http
-ENV NBE_NODE_MANAGER=noop
 
 # Package manager and dependencies
 # RUN apt-get update && apt-get install -y curl git

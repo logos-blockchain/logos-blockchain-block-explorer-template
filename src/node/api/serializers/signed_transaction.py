@@ -1,6 +1,6 @@
 import hashlib
 import json
-from typing import List, Self
+from typing import List
 
 from pydantic import Field
 
@@ -31,7 +31,6 @@ from node.api.serializers.proof import (
     ZkSignatureSerializer,
 )
 from node.api.serializers.transaction import TransactionSerializer
-from utils.protocols import FromRandom
 
 
 def _proof_to_internal(proof) -> dict:
@@ -153,7 +152,7 @@ def _op_to_content(op) -> dict:
     raise ValueError(f"Unsupported mantle op type: {type(op).__name__}")
 
 
-class SignedTransactionSerializer(NbeSerializer, FromRandom):
+class SignedTransactionSerializer(NbeSerializer):
     transaction: TransactionSerializer = Field(alias="mantle_tx", description="Transaction.")
     operations_proofs: List[OperationProofSerializerField] = Field(
         alias="ops_proofs",
@@ -188,16 +187,5 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
                 "operations": operations,
                 "execution_gas_price": self.transaction.execution_gas_price,
                 "storage_gas_price": self.transaction.storage_gas_price,
-            }
-        )
-
-    @classmethod
-    def from_random(cls) -> Self:
-        transaction = TransactionSerializer.from_random()
-        operations_proofs = [ZkSignatureSerializer.from_random() for _ in range(len(transaction.ops))]
-        return cls.model_validate(
-            {
-                "mantle_tx": transaction,
-                "ops_proofs": operations_proofs,
             }
         )

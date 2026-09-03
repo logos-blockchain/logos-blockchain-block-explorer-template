@@ -10,8 +10,7 @@ from db.channels import ChannelOperationRepository
 from db.clients import SqliteClient
 from db.transaction import TransactionRepository
 from models.block import Block
-from node.api.builder import build_node_api
-from node.manager.builder import build_node_manager
+from node.api.http import HttpNodeApi
 
 if TYPE_CHECKING:
     from core.app import NBE
@@ -93,8 +92,7 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
 
 @asynccontextmanager
 async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
-    app.state.node_manager = build_node_manager(app.settings)
-    app.state.node_api = build_node_api(app.settings)
+    app.state.node_api = HttpNodeApi(app.settings)
 
     db_client = SqliteClient(sqlite_db_path=app.settings.database_url)
     app.state.db_client = db_client
@@ -103,10 +101,6 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
     app.state.channel_repository = ChannelOperationRepository(db_client)
 
     try:
-        logger.info("Starting node...")
-        await app.state.node_manager.start()
-        logger.info("Node started.")
-
         # Index channel ops for transactions stored before the channel index existed
         indexed = await app.state.channel_repository.backfill()
         if indexed:
@@ -119,13 +113,8 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
 
         yield
     finally:
-        # Check if node api needs cleanup
-        if hasattr(app.state.node_api, "aclose"):
-            logger.info("Closing node_api connections...")
-            await app.state.node_api.aclose()
-        logger.info("Stopping node...")
-        await app.state.node_manager.stop()
-        logger.info("Node stopped.")
+        logger.info("Closing node_api connections...")
+        await app.state.node_api.aclose()
 
 
 async def _gracefully_close_stream(stream: AsyncIterator) -> None:

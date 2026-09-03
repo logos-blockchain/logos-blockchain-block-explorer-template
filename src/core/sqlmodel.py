@@ -24,12 +24,10 @@ class _TypeAdapter(TypeAdapter):  # type: ignore[misc]
         by_alias: bool | None = None,
         by_name: bool | None = None,
     ) -> T:
-        logger.warning(
-            """
+        logger.warning("""
             Method `TypeAdapter::validate_json` is known to not deserialize JSON columns correctly under certain conditions.
             For more context read `NbeModel::model_validate_json`'s pydoc.
-            """
-        )
+            """)
         return super().validate_json(
             data,
             strict=strict,

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Annotated, Any, Optional, Self, Union
+from typing import Annotated, Any, Optional, Union
 
 from pydantic import BeforeValidator, Field, RootModel
 
@@ -15,11 +15,9 @@ from models.transactions.operations.proofs import (
     ZkSignature,
 )
 from node.api.serializers.fields import BytesFromHex, BytesFromHexOrIntArray
-from utils.protocols import EnforceSubclassFromRandom
-from utils.random import random_bytes
 
 
-class OperationProofSerializer(EnforceSubclassFromRandom, ABC):
+class OperationProofSerializer(ABC):
     @abstractmethod
     def into_operation_proof(cls) -> NbeSignature:
         raise NotImplementedError
@@ -34,10 +32,6 @@ class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[bytes]):
                 "signature": self.root,
             }
         )
-
-    @classmethod
-    def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate(list(random_bytes(64)))
 
 
 class ZkSignatureSerializer(OperationProofSerializer, NbeSerializer):
@@ -57,16 +51,6 @@ class ZkSignatureSerializer(OperationProofSerializer, NbeSerializer):
             }
         )
 
-    @classmethod
-    def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate(
-            {
-                "pi_a": list(random_bytes(32)),
-                "pi_b": list(random_bytes(64)),
-                "pi_c": list(random_bytes(32)),
-            }
-        )
-
 
 class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
     zk_signature: ZkSignatureSerializer = Field(alias="zk_sig")
@@ -80,19 +64,6 @@ class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
             }
         )
 
-    @classmethod
-    def from_random(cls, *args, **kwargs) -> Self:
-        return ZkAndEd25519SignaturesSerializer.model_validate(
-            {
-                "zk_sig": {
-                    "pi_a": list(random_bytes(32)),
-                    "pi_b": list(random_bytes(64)),
-                    "pi_c": list(random_bytes(32)),
-                },
-                "ed25519_sig": random_bytes(64).hex(),
-            }
-        )
-
 
 class PoCProofSerializer(OperationProofSerializer, NbeSerializer):
     """Groth16 leader claim (PoC) proof: 128 proof bytes."""
@@ -101,10 +72,6 @@ class PoCProofSerializer(OperationProofSerializer, NbeSerializer):
 
     def into_operation_proof(self) -> NbeSignature:
         return PoCSignature.model_validate({"proof": self.proof})
-
-    @classmethod
-    def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate({"proof": random_bytes(128).hex()})
 
 
 class IndexedSignatureSerializer(NbeSerializer):
@@ -126,10 +93,6 @@ class ChannelMultiSigProofSerializer(OperationProofSerializer, NbeSerializer):
             }
         )
 
-    @classmethod
-    def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate({"signatures": [{"signature": random_bytes(64).hex(), "channel_key_index": 0}]})
-
 
 class NoneProofSerializer(OperationProofSerializer, NbeSerializer):
     """Ops that carry no proof (node 0.3.0+: ClaimPowReward).
@@ -140,10 +103,6 @@ class NoneProofSerializer(OperationProofSerializer, NbeSerializer):
 
     def into_operation_proof(self) -> NbeSignature:
         return NoneProof()
-
-    @classmethod
-    def from_random(cls, *args, **kwargs) -> Self:
-        return cls()
 
 
 class UnknownProofSerializer(OperationProofSerializer, NbeSerializer):
@@ -157,10 +116,6 @@ class UnknownProofSerializer(OperationProofSerializer, NbeSerializer):
 
     def into_operation_proof(self) -> NbeSignature:
         return UnknownSignature.model_validate({"raw": self.raw})
-
-    @classmethod
-    def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate({"raw": "NoProof"})
 
 
 PROOF_TAG_TO_SERIALIZER = {

@@ -46,6 +46,4 @@ def bytes_into_hex(data: bytes) -> str:
 BytesFromIntArray = Annotated[bytes, BeforeValidator(bytes_from_intarray), PlainSerializer(bytes_into_hex)]
 BytesFromHex = Annotated[bytes, BeforeValidator(bytes_from_hex), PlainSerializer(bytes_into_hex)]
 BytesFromInt = Annotated[bytes, BeforeValidator(bytes_from_int), PlainSerializer(bytes_into_hex)]
-BytesFromHexOrIntArray = Annotated[
-    bytes, BeforeValidator(bytes_from_hex_or_intarray), PlainSerializer(bytes_into_hex)
-]
+BytesFromHexOrIntArray = Annotated[bytes, BeforeValidator(bytes_from_hex_or_intarray), PlainSerializer(bytes_into_hex)]

@@ -9,7 +9,6 @@ from rusty_results import Empty, Option, Some
 from third_party import requests
 
 from core.authentication import Authentication
-from node.api.base import NodeApi
 from node.api.serializers.block import BlockSerializer
 from node.api.serializers.health import HealthSerializer
 from node.api.serializers.info import InfoSerializer
@@ -38,7 +37,7 @@ def normalize_info_payload(data: dict) -> dict:
     return info
 
 
-class HttpNodeApi(NodeApi):
+class HttpNodeApi:
     # Paths can't have a leading slash since they are relative to the base URL
     ENDPOINT_INFO = "cryptarchia/info"
     ENDPOINT_BLOCKS_STREAM = "cryptarchia/events/blocks/stream"
