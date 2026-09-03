@@ -1,110 +1,94 @@
-from asyncio import sleep
-from typing import AsyncIterator, List
+from typing import List, Optional
 
-from rusty_results import Empty, Option, Some
-from sqlalchemy import Result, Select, func as sa_func
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy import Result, String, cast, func as sa_func
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-from db.blocks import chain_block_ids_cte
 from db.clients import DbClient
 from models.block import Block
 from models.transactions.transaction import Transaction
 
 
-def get_latest_statement(limit: int, *, fork: int, output_ascending: bool, preload_relationships: bool) -> Select:
-    chain = chain_block_ids_cte(fork=fork)
-    base = (
-        select(Transaction, Block.height.label("block__height"))
+def _canonical_transactions():
+    """Transactions on the canonical chain, with their block preloaded."""
+    return (
+        select(Transaction)
+        .options(selectinload(Transaction.block))
         .join(Block, Transaction.block_id == Block.id)
-        .join(chain, Block.id == chain.c.id)
-        .order_by(Block.height.desc(), Transaction.id.desc())
-        .limit(limit)
+        .where(Block.canonical)
     )
-    if not output_ascending:
-        return base
-
-    # Reorder for output
-    inner = base.subquery()
-    latest = aliased(Transaction, inner)
-    statement = select(latest).order_by(inner.c.block__height.asc(), latest.id.asc())
-    if preload_relationships:
-        statement = statement.options(selectinload(latest.block))
-    return statement
 
 
 class TransactionRepository:
     def __init__(self, client: DbClient):
         self.client = client
 
-    async def create(self, *transaction: Transaction) -> None:
-        with self.client.session() as session:
-            session.add_all(list(transaction))
-            session.commit()
-
-    async def get_by_id(self, transaction_id: int) -> Option[Transaction]:
-        statement = select(Transaction).where(Transaction.id == transaction_id)
-
-        with self.client.session() as session:
-            result: Result[Transaction] = session.exec(statement)
-            if (transaction := result.one_or_none()) is not None:
-                return Some(transaction)
-            else:
-                return Empty()
-
-    async def get_by_hash(self, transaction_hash: bytes, *, fork: int) -> Option[Transaction]:
-        chain = chain_block_ids_cte(fork=fork)
+    async def get_by_hash(self, transaction_hash: bytes) -> Optional[Transaction]:
+        """The canonical copy if one exists, otherwise the copy from an orphaned block."""
         statement = (
             select(Transaction)
+            .options(selectinload(Transaction.block))
             .join(Block, Transaction.block_id == Block.id)
-            .join(chain, Block.id == chain.c.id)
             .where(Transaction.hash == transaction_hash)
+            .order_by(Block.canonical.desc(), Block.height.desc())
+            .limit(1)
         )
-
         with self.client.session() as session:
             result: Result[Transaction] = session.exec(statement)
-            if (transaction := result.first()) is not None:
-                return Some(transaction)
-            else:
-                return Empty()
+            return result.first()
 
-    async def get_latest(
-        self, limit: int, *, fork: int, ascending: bool = False, preload_relationships: bool = False
-    ) -> List[Transaction]:
+    async def get_latest(self, limit: int) -> List[Transaction]:
+        """The newest `limit` canonical transactions, oldest-first."""
         if limit == 0:
             return []
 
-        statement = get_latest_statement(
-            limit, fork=fork, output_ascending=ascending, preload_relationships=preload_relationships
-        )
-
+        statement = _canonical_transactions().order_by(Block.height.desc(), Transaction.id.desc()).limit(limit)
         with self.client.session() as session:
-            results: Result[Transaction] = session.exec(statement)
-            return results.all()
+            return list(reversed(session.exec(statement).all()))
 
-    async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Transaction], int]:
+    async def get_since(self, canonical_seq: int, *, limit: int = 500) -> List[Transaction]:
+        """Transactions whose block became canonical after stamp `canonical_seq`, in chain order."""
+        statement = (
+            _canonical_transactions()
+            .where(Block.canonical_seq > canonical_seq)
+            .order_by(Block.canonical_seq.asc(), Block.height.asc(), Transaction.id.asc())
+            .limit(limit)
+        )
+        with self.client.session() as session:
+            return session.exec(statement).all()
+
+    async def search_by_note_id(self, note_id: bytes, *, limit: int) -> List[Transaction]:
         """
-        Get transactions with pagination, ordered by block height descending (newest first).
-        Follows the chain from the fork's tip back to genesis across fork boundaries.
-        Returns a tuple of (transactions, total_count).
+        Transactions whose operations JSON contains the note id's hex, newest first.
+
+        This is a textual prefilter: the hex could in principle appear in a
+        non-note field (signature, public key, metadata), so callers must
+        verify which operations actually reference the note.
         """
+        statement = (
+            _canonical_transactions()
+            .where(cast(Transaction.operations, String).like(f"%{note_id.hex()}%"))
+            .order_by(Block.height.desc(), Transaction.id.desc())
+            .limit(limit)
+        )
+        with self.client.session() as session:
+            return session.exec(statement).all()
+
+    async def get_paginated(self, page: int, page_size: int) -> tuple[List[Transaction], int]:
+        """Canonical transactions, newest first, plus the total count."""
         offset = page * page_size
-        chain = chain_block_ids_cte(fork=fork)
 
         with self.client.session() as session:
             count_statement = (
                 select(sa_func.count())
                 .select_from(Transaction)
                 .join(Block, Transaction.block_id == Block.id)
-                .join(chain, Block.id == chain.c.id)
+                .where(Block.canonical)
             )
             total_count = session.exec(count_statement).one()
 
             statement = (
-                select(Transaction)
-                .options(selectinload(Transaction.block))
-                .join(Block, Transaction.block_id == Block.id)
-                .join(chain, Block.id == chain.c.id)
+                _canonical_transactions()
                 .order_by(Block.height.desc(), Transaction.id.desc())
                 .offset(offset)
                 .limit(page_size)
@@ -112,32 +96,3 @@ class TransactionRepository:
             transactions = session.exec(statement).all()
 
         return transactions, total_count
-
-    async def updates_stream(
-        self, transaction_from: Option[Transaction], *, fork: int, timeout_seconds: int = 1
-    ) -> AsyncIterator[List[Transaction]]:
-        height_cursor = transaction_from.map(lambda transaction: transaction.block.height).unwrap_or(0)
-        transaction_id_cursor = transaction_from.map(lambda transaction: transaction.id + 1).unwrap_or(0)
-
-        while True:
-            statement = (
-                select(Transaction)
-                .options(selectinload(Transaction.block))
-                .join(Block, Transaction.block_id == Block.id)
-                .where(
-                    Block.fork == fork,
-                    Block.height >= height_cursor,
-                    Transaction.id >= transaction_id_cursor,
-                )
-                .order_by(Block.height.asc(), Transaction.id.asc())
-            )
-
-            with self.client.session() as session:
-                transactions: List[Transaction] = session.exec(statement).all()
-
-            if len(transactions) > 0:
-                height_cursor = transactions[-1].block.height
-                transaction_id_cursor = transactions[-1].id + 1
-                yield transactions
-            else:
-                await sleep(timeout_seconds)

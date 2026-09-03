@@ -1,17 +1,7 @@
-from enum import Enum
 from typing import Any, Literal, Optional
 
 from core.models import NbeSchema
 from core.types import HexBytes
-
-
-class SignatureType(Enum):
-    ED25519 = "Ed25519"
-    ZK = "Zk"
-    ZK_AND_ED25519 = "ZkAndEd25519"
-    POC = "PoC"
-    CHANNEL_MULTI_SIG = "ChannelMultiSig"
-    NONE = "None"
 
 
 class NbeSignature(NbeSchema):

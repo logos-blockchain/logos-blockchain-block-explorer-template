@@ -10,8 +10,9 @@ from db.clients.base import DbClient
 SQLITE_DB_PATH = DIR_REPO.joinpath("sqlite.db")
 
 
-# TODO: Async
 class SqliteClient(DbClient):
+    """No schema migrations: on a schema change, delete the database and let the explorer backfill from the node."""
+
     def __init__(self, sqlite_db_path: str = f"sqlite:///{SQLITE_DB_PATH}") -> None:
         self.engine: Engine = create_engine(sqlite_db_path)
         SQLModel.metadata.create_all(self.engine)

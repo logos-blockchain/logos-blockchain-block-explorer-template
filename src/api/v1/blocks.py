@@ -1,32 +1,26 @@
 from http.client import NOT_FOUND
-from typing import TYPE_CHECKING, AsyncIterator, List
+from typing import List
 
 from fastapi import Query
-from rusty_results import Empty, Option, Some
 from starlette.responses import JSONResponse, Response
 
-from api.streams import into_ndjson_stream
-from api.v1.serializers.blocks import BlockRead
+from api.streams import follow_chain, into_ndjson_stream
+from api.v1.serializers.blocks import BlockRead, BlockSummary
 from core.api import NBERequest, NDJsonStreamingResponse
 from core.types import dehexify
-from models.block import Block
-
-if TYPE_CHECKING:
-    from core.app import NBE
 
 
 async def list_blocks(
     request: NBERequest,
     page: int = Query(0, ge=0),
     page_size: int = Query(10, ge=1, le=100, alias="page-size"),
-    fork: int = Query(...),
 ) -> Response:
-    blocks, total_count = await request.app.state.block_repository.get_paginated(page, page_size, fork=fork)
+    blocks, total_count = await request.app.state.block_repository.get_paginated(page, page_size)
     total_pages = (total_count + page_size - 1) // page_size  # ceiling division
 
     return JSONResponse(
         {
-            "blocks": [BlockRead.from_block(block).model_dump(mode="json") for block in blocks],
+            "blocks": [BlockSummary.from_block(block).model_dump(mode="json") for block in blocks],
             "page": page,
             "page_size": page_size,
             "total_count": total_count,
@@ -35,33 +29,34 @@ async def list_blocks(
     )
 
 
-async def _get_blocks_stream_serialized(
-    app: "NBE", block_from: Option[Block], *, fork: int
-) -> AsyncIterator[List[BlockRead]]:
-    _stream = app.state.block_repository.updates_stream(block_from, fork=fork)
-    async for blocks in _stream:
-        yield [BlockRead.from_block(block) for block in blocks]
-
-
 async def stream(
     request: NBERequest,
     prefetch_limit: int = Query(0, alias="prefetch-limit", ge=0),
-    fork: int = Query(...),
 ) -> Response:
-    latest_blocks = await request.app.state.block_repository.get_latest(prefetch_limit, fork=fork)
-    latest_block = Some(latest_blocks[-1]) if latest_blocks else Empty()
-    bootstrap_blocks: List[BlockRead] = [BlockRead.from_block(block) for block in latest_blocks]
+    """The newest `prefetch-limit` canonical blocks, then every block that becomes canonical from now on."""
+    repository = request.app.state.block_repository
+    latest_blocks = await repository.get_latest(prefetch_limit)
+    bootstrap: List[BlockSummary] = [BlockSummary.from_block(block) for block in latest_blocks]
+    after = await repository.max_canonical_seq()
 
-    blocks_stream: AsyncIterator[List[BlockRead]] = _get_blocks_stream_serialized(request.app, latest_block, fork=fork)
-    ndjson_blocks_stream = into_ndjson_stream(blocks_stream, bootstrap_data=bootstrap_blocks)
-    return NDJsonStreamingResponse(ndjson_blocks_stream)
+    async def summaries():
+        async for blocks in follow_chain(
+            request.app.state.chain_notifier,
+            repository.get_since,
+            after=after,
+            cursor_of=lambda block: block.canonical_seq,
+        ):
+            yield [BlockSummary.from_block(block) for block in blocks]
+
+    return NDJsonStreamingResponse(into_ndjson_stream(summaries(), bootstrap_data=bootstrap))
 
 
 async def get(request: NBERequest, block_hash: str) -> Response:
-    if not block_hash:
+    try:
+        block_hash = dehexify(block_hash)
+    except ValueError:
         return Response(status_code=NOT_FOUND)
-    block_hash = dehexify(block_hash)
     block = await request.app.state.block_repository.get_by_hash(block_hash)
-    return block.map(lambda _block: JSONResponse(BlockRead.from_block(_block).model_dump(mode="json"))).unwrap_or_else(
-        lambda: Response(status_code=NOT_FOUND)
-    )
+    if block is None:
+        return Response(status_code=NOT_FOUND)
+    return JSONResponse(BlockRead.from_block(block).model_dump(mode="json"))

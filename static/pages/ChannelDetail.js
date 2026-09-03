@@ -3,48 +3,11 @@ import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
-import { subscribeFork } from '../lib/fork.js';
-import { summarize, OP_LABELS, navigateTo } from '../lib/channels.js';
+import { summarize, OP_LABELS } from '../lib/channels.js';
+import { fieldLabel, tryDecodeUtf8Hex } from '../lib/format.js';
+import { FieldValue } from '../components/Common.js';
 
 const PAGE_SIZE = 25;
-
-/** Try to decode a hex string as UTF-8. Returns the decoded string or null on failure. */
-function tryDecodeUtf8Hex(hex) {
-    if (typeof hex !== 'string' || hex.length === 0 || hex.length % 2 !== 0) return null;
-    try {
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < hex.length; i += 2) {
-            const b = parseInt(hex.substring(i, i + 2), 16);
-            if (Number.isNaN(b)) return null;
-            bytes[i / 2] = b;
-        }
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        if (/[\x20-\x7e]/.test(text)) return text;
-        return null;
-    } catch {
-        return null;
-    }
-}
-
-const fieldLabel = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
-function FieldValue({ value }) {
-    if (value == null) return h('span', { class: 'mono', style: 'color:var(--muted)' }, 'null');
-    if (typeof value === 'number') return h('span', { class: 'mono' }, String(value));
-    if (typeof value === 'string')
-        return h('span', { class: 'mono', style: 'overflow-wrap:anywhere; word-break:break-all;' }, value);
-    if (Array.isArray(value)) {
-        if (!value.length) return h('span', { class: 'mono', style: 'color:var(--muted)' }, '[]');
-        return h(
-            'div',
-            { style: 'display:flex; flex-direction:column; gap:4px;' },
-            ...value.map((item, i) =>
-                h(FieldValue, { key: i, value: typeof item === 'object' ? JSON.stringify(item) : item }),
-            ),
-        );
-    }
-    return h('span', { class: 'mono', style: 'overflow-wrap:anywhere;' }, JSON.stringify(value));
-}
 
 function ContentFields({ content }) {
     const entries = Object.entries(content ?? {}).filter(([k]) => k !== 'type');
@@ -91,10 +54,6 @@ function OperationRow({ op, highlighted }) {
                     class: 'linkish mono channel-op-tx',
                     href: txUrl,
                     title: op.transaction_hash,
-                    onClick: (e) => {
-                        e.preventDefault();
-                        navigateTo(txUrl);
-                    },
                 },
                 shortenHex(op.transaction_hash, 8, 6),
             ),
@@ -104,10 +63,6 @@ function OperationRow({ op, highlighted }) {
                     class: 'linkish channel-op-height',
                     href: blockUrl,
                     title: op.block_hash,
-                    onClick: (e) => {
-                        e.preventDefault();
-                        navigateTo(blockUrl);
-                    },
                 },
                 `height ${op.height} · slot ${op.slot}`,
             ),
@@ -164,13 +119,8 @@ export default function ChannelDetail({ parameters }) {
 
     const [data, setData] = useState(null);
     const [err, setErr] = useState(null);
-    const [fork, setFork] = useState(null);
     const [page, setPage] = useState(0);
     const [highlightIndex, setHighlightIndex] = useState(null);
-
-    useEffect(() => {
-        return subscribeFork((newFork) => setFork(newFork));
-    }, []);
 
     const pageTitle = useMemo(() => `Channel ${shortenHex(channelId)}`, [channelId]);
     useEffect(() => {
@@ -184,14 +134,13 @@ export default function ChannelDetail({ parameters }) {
             setErr({ kind: 'invalid', msg: 'Invalid channel id.' });
             return;
         }
-        if (fork == null) return;
 
         let alive = true;
         const controller = new AbortController();
 
         (async () => {
             try {
-                const res = await fetch(API.CHANNEL_DETAIL_BY_ID(channelId, fork, page, PAGE_SIZE), {
+                const res = await fetch(API.CHANNEL_DETAIL_BY_ID(channelId, page, PAGE_SIZE), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
@@ -209,7 +158,7 @@ export default function ChannelDetail({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [channelId, isValidId, fork, page]);
+    }, [channelId, isValidId, page]);
 
     const opCount = data?.op_count ?? 0;
     const pageCount = Math.max(1, Math.ceil(opCount / PAGE_SIZE));
@@ -248,12 +197,11 @@ export default function ChannelDetail({ parameters }) {
                 h(
                     'div',
                     { class: 'channel-detail-scan-note' },
-                    'Operations are indexed oldest-first across the channel’s full history on this fork.',
+                    'Operations are indexed oldest-first across the channel’s full history.',
                 ),
                 h(JumpToOp, { opCount, onJump: jumpTo }),
 
-                opCount === 0 &&
-                    h('div', { class: 'channels-empty' }, 'No operations found for this channel on this fork.'),
+                opCount === 0 && h('div', { class: 'channels-empty' }, 'No operations found for this channel.'),
 
                 opCount > 0 &&
                     h(

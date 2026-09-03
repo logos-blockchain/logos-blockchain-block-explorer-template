@@ -1,6 +1,4 @@
-import hashlib
-import json
-from typing import List, Self
+from typing import List
 
 from pydantic import Field
 
@@ -31,7 +29,6 @@ from node.api.serializers.proof import (
     ZkSignatureSerializer,
 )
 from node.api.serializers.transaction import TransactionSerializer
-from utils.protocols import FromRandom
 
 
 def _proof_to_internal(proof) -> dict:
@@ -153,22 +150,12 @@ def _op_to_content(op) -> dict:
     raise ValueError(f"Unsupported mantle op type: {type(op).__name__}")
 
 
-class SignedTransactionSerializer(NbeSerializer, FromRandom):
+class SignedTransactionSerializer(NbeSerializer):
     transaction: TransactionSerializer = Field(alias="mantle_tx", description="Transaction.")
     operations_proofs: List[OperationProofSerializerField] = Field(
         alias="ops_proofs",
         description="List of OperationProof. Order should match `Self::transaction::ops`.",
     )
-
-    def _compute_hash(self) -> bytes:
-        # Prefer the canonical hash reported by the node (newer nodes include it
-        # in mantle_tx). A locally computed JSON hash will NOT match the chain's
-        # real tx hash, so it is only a last-resort fallback for older nodes.
-        if self.transaction.hash is not None:
-            return self.transaction.hash
-        data = self.transaction.model_dump(mode="json", exclude={"hash"})
-        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode()).digest()
 
     def into_transaction(self) -> Transaction:
         ops = self.transaction.ops
@@ -184,20 +171,7 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
 
         return Transaction.model_validate(
             {
-                "hash": self._compute_hash(),
+                "hash": self.transaction.hash,
                 "operations": operations,
-                "execution_gas_price": self.transaction.execution_gas_price,
-                "storage_gas_price": self.transaction.storage_gas_price,
-            }
-        )
-
-    @classmethod
-    def from_random(cls) -> Self:
-        transaction = TransactionSerializer.from_random()
-        operations_proofs = [ZkSignatureSerializer.from_random() for _ in range(len(transaction.ops))]
-        return cls.model_validate(
-            {
-                "mantle_tx": transaction,
-                "ops_proofs": operations_proofs,
             }
         )

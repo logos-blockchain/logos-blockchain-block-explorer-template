@@ -1,11 +1,2 @@
-# Ignore everything by default
-**
-
-# Include static files
-!static
-!static/**
-
-# Still ignore generated stuff inside static
-static/**/dist/**
-static/**/build/**
-static/**/node_modules/**
+static/vendor/
+node_modules/

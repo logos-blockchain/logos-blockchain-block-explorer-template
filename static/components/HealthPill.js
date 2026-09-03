@@ -1,7 +1,7 @@
 import { h } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { API } from '../lib/api.js';
-import { streamNdjson, withBenignFilter } from '../lib/utils.js';
+import { streamNdjson } from '../lib/utils.js';
 
 const STATUS = {
     CONNECTING: 'connecting',
@@ -36,12 +36,12 @@ export default function HealthPill() {
             },
             {
                 signal: abortRef.current.signal,
-                onError: withBenignFilter((err) => {
+                onError: (err) => {
                     if (!abortRef.current.signal.aborted) {
                         console.error('Health stream error:', err);
                         setStatus(STATUS.OFFLINE);
                     }
-                }, abortRef.current.signal),
+                },
             },
         );
 

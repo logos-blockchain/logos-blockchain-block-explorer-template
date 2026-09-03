@@ -1,14 +1,14 @@
 """Tests for node API serializers against the current (0.3.0-rc.2) wire format.
 
-The fixtures are real data: block_new_format.json is a block captured from a
-node, and ops_samples_testnet.json holds per-opcode op/proof samples harvested
-from the chain.
+block_new_format.json is a real block captured from a node; the per-op tests
+patch its first transaction with the payload under test.
 """
 
 import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from node.api.http import normalize_info_payload
 from node.api.serializers.block import BlockSerializer
@@ -125,17 +125,16 @@ class TestBlockParsing:
         assert parsed.hash == bytes.fromhex(block["header"]["id"])
         assert parsed.transactions[0].operations[0].content.type == "ChannelInscribe"
 
-    def test_missing_gas_prices_default_to_zero(self, block):
-        parsed = BlockSerializer.model_validate(block)
-        tx = parsed.transactions[0].into_transaction()
-        assert tx.execution_gas_price == 0
-        assert tx.storage_gas_price == 0
+    def test_missing_header_id_is_rejected(self, block):
+        del block["header"]["id"]
+        with pytest.raises(ValidationError):
+            BlockSerializer.model_validate(block)
 
-    def test_hash_fallback_when_node_omits_it(self, block):
+    def test_missing_hash_is_rejected(self, block):
+        # The hash is computed by the node; a payload without it must not be ingested.
         del block["transactions"][0]["mantle_tx"]["hash"]
-        parsed = BlockSerializer.model_validate(block)
-        tx = parsed.transactions[0].into_transaction()
-        assert len(tx.hash) == 32  # deterministic local fallback
+        with pytest.raises(ValidationError):
+            BlockSerializer.model_validate(block)
 
 
 class TestUnknownOps:
@@ -198,21 +197,6 @@ class TestChannelConfigOp:
         assert operation.proof.type == "ChannelMultiSig"
         assert operation.proof.signatures[0].channel_key_index == 0
 
-    def test_legacy_setkeys_payload_degrades_to_unknown(self, block):
-        """Pre-0.2.x opcode 16 payloads lack the config fields; they must not
-        break ingestion."""
-        samples = json.loads((FIXTURES / "ops_samples_testnet.json").read_text())
-        legacy = samples["16"]
-        tx = block["transactions"][0]
-        tx["mantle_tx"]["ops"] = [{"opcode": 16, "payload": legacy["payload"]}]
-        tx["ops_proofs"] = [legacy["proof"]]
-        parsed = BlockSerializer.model_validate(block)
-        op = parsed.transactions[0].transaction.ops[0]
-        assert isinstance(op, UnknownOpSerializer)
-        content = parsed.transactions[0].into_transaction().operations[0].content
-        assert content.type == "UnknownOp"
-        assert content.opcode == 16
-
 
 class TestNewOps:
     """Ops introduced with the 0.2.x wire format."""
@@ -266,6 +250,23 @@ class TestNode030WireFormat:
         parsed = BlockSerializer.model_validate(block)
         assert parsed.header.block_root == bytes.fromhex(header["body_root"])
         assert parsed.into_block().block_root == bytes.fromhex(header["body_root"])
+
+    def test_uncle_headers_are_kept(self, block):
+        uncle_header = dict(block["header"], id="ab" * 32, slot=block["header"]["slot"] - 1)
+        block["uncle_headers"] = [{"header": uncle_header, "signature": "cd" * 64}]
+        parsed = BlockSerializer.model_validate(block).into_block()
+        assert len(parsed.uncles) == 1
+        uncle = parsed.uncles[0]
+        assert uncle.hash == bytes.fromhex("ab" * 32)
+        assert uncle.slot == block["header"]["slot"] - 1
+        assert uncle.parent_block == bytes.fromhex(block["header"]["parent_block"])
+        assert uncle.leader_key == bytes.fromhex(block["header"]["proof_of_leadership"]["leader_key"])
+        # Round-trips through the JSON column shape.
+        assert parsed.model_dump(mode="json")["uncles"][0]["hash"] == "ab" * 32
+
+    def test_block_without_uncle_headers_has_none(self, block):
+        assert "uncle_headers" not in block  # pre-0.3.0 fixture
+        assert BlockSerializer.model_validate(block).into_block().uncles == []
 
     def test_header_legacy_block_root_still_accepted(self, block):
         assert BlockSerializer.model_validate(block).header.block_root == bytes.fromhex(block["header"]["block_root"])

@@ -39,14 +39,13 @@ def serialize_operation(row: ChannelOperationRow, *, index: int | None = None) -
 async def get_channel(
     request: NBERequest,
     channel_id: str,
-    fork: int = Query(...),
     page: int = Query(0, ge=0),
     page_size: int = Query(25, ge=1, le=100, alias="page-size"),
 ) -> Response:
-    """One channel's operations across its whole history on the fork, oldest-first, paginated.
+    """One channel's operations across its whole history on the canonical chain, oldest-first, paginated.
 
     `index` is the op's position in that history, so it is stable across pages
-    and refreshes (barring a reorg of the fork itself).
+    and refreshes (barring a reorg).
     """
     parsed = _parse_channel_id(channel_id)
     if parsed is None:
@@ -56,9 +55,9 @@ async def get_channel(
         )
 
     repository = request.app.state.channel_repository
-    op_count = await repository.count(parsed, fork=fork)
+    op_count = await repository.count(parsed)
     offset = page * page_size
-    rows = await repository.get_operations(parsed, fork=fork, newest_first=False, offset=offset, limit=page_size)
+    rows = await repository.get_operations(parsed, newest_first=False, offset=offset, limit=page_size)
 
     operations = []
     for position, row in enumerate(rows):
@@ -79,17 +78,16 @@ async def get_channel(
 
 async def list_channels(
     request: NBERequest,
-    fork: int = Query(...),
     limit: int = Query(8, ge=1, le=24),
     ops_limit: int = Query(25, ge=1, le=100, alias="ops-limit"),
 ) -> Response:
-    """Top channels by total activity on the fork, each with its most recent operations."""
+    """Top channels by total activity on the canonical chain, each with its most recent operations."""
     repository = request.app.state.channel_repository
-    top = await repository.list_top(fork=fork, limit=limit)
+    top = await repository.list_top(limit=limit)
 
     channels = []
     for channel_id, op_count, _last_height in top:
-        rows = await repository.get_operations(channel_id, fork=fork, newest_first=True, limit=ops_limit)
+        rows = await repository.get_operations(channel_id, newest_first=True, limit=ops_limit)
         operations = [op for op in (serialize_operation(row) for row in rows) if op is not None]
         if not operations:
             continue

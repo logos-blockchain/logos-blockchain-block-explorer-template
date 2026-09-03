@@ -2,33 +2,23 @@ from typing import TYPE_CHECKING, Iterable, Iterator, List, Optional
 
 from sqlmodel import Field
 
-from core.models import TimestampedModel
+from core.models import IdNbeModel
 from core.types import HexBytes
 
 if TYPE_CHECKING:
     from models.block import Block
     from models.transactions.transaction import Transaction
 
-# Content types that belong to a channel. ChannelSetKeys/ChannelBlob are
-# legacy (pre-0.2.x) types kept so old rows still index.
+# Content types that belong to a channel.
 CHANNEL_CONTENT_TYPES = frozenset(
-    {
-        "ChannelInscribe",
-        "ChannelConfig",
-        "ChannelDeposit",
-        "ChannelWithdraw",
-        "ChannelTransfer",
-        "ChannelSetKeys",
-        "ChannelBlob",
-    }
+    {"ChannelInscribe", "ChannelConfig", "ChannelDeposit", "ChannelWithdraw", "ChannelTransfer"}
 )
 
 
 def channel_id_of(content) -> Optional[bytes]:
     """Channel id referenced by an operation content, if it is a channel op.
 
-    ChannelConfig/ChannelSetKeys/ChannelBlob carry the id as `channel`; the
-    rest as `channel_id`.
+    ChannelConfig carries the id as `channel`; the rest as `channel_id`.
     """
     if getattr(content, "type", None) not in CHANNEL_CONTENT_TYPES:
         return None
@@ -40,14 +30,15 @@ def channel_id_of(content) -> Optional[bytes]:
     return channel if isinstance(channel, bytes) else bytes.fromhex(str(channel))
 
 
-class ChannelOperation(TimestampedModel, table=True):
+class ChannelOperation(IdNbeModel, table=True):
     """One channel operation, indexed at ingestion time.
 
     Channel activity used to be aggregated on every request from the JSON of
     the most recent N transactions, which mis-counted long-lived channels and
     dropped any channel whose activity fell outside the window. This table is
-    written in the same commit as its block, so counts are exact and the
-    fork-chain CTE can filter out orphaned blocks at query time.
+    written in the same commit as its block, so counts are exact and queries
+    can restrict to canonical blocks. There is no backfill: a database that
+    predates this table is deleted and rebuilt from the node.
     """
 
     __tablename__ = "channel_operation"

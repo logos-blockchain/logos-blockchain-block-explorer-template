@@ -3,80 +3,85 @@ import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
+import { transferOutputs } from '../lib/format.js';
+import { CopyPill, OpPills } from '../components/Common.js';
 
-const OPERATIONS_PREVIEW_LIMIT = 2;
-
-// ---- Helpers ----
-const opLabel = (op) => {
-    if (op == null) return 'op';
-    if (typeof op === 'string' || typeof op === 'number') return String(op);
-    if (typeof op !== 'object') return String(op);
-    if (typeof op.type === 'string') return op.type;
-    if (typeof op.kind === 'string') return op.kind;
-    if (op.content) {
-        if (typeof op.content.type === 'string') return op.content.type;
-        if (typeof op.content.kind === 'string') return op.content.kind;
-    }
-    const keys = Object.keys(op);
-    return keys.length ? keys[0] : 'op';
-};
-
-function opsToPills(ops, limit = OPERATIONS_PREVIEW_LIMIT) {
-    const arr = Array.isArray(ops) ? ops : [];
-    if (!arr.length) return h('span', { style: 'color:var(--muted); white-space:nowrap;' }, '—');
-
-    const labels = arr.map(opLabel);
-    const shown = labels.slice(0, limit);
-    const extra = labels.length - shown.length;
-
+function UnclesCard({ uncles }) {
     return h(
         'div',
-        { style: 'display:flex; gap:6px; flex-wrap:nowrap; align-items:center; white-space:nowrap;' },
-        ...shown.map((label, i) =>
-            h('span', { key: `${label}-${i}`, class: 'pill', title: label, style: 'flex:0 0 auto;' }, label),
+        { class: 'card', style: 'margin-top:16px;' },
+        h(
+            'div',
+            { class: 'card-header' },
+            h('strong', null, 'Uncles '),
+            h('span', { class: 'pill' }, String(uncles.length)),
+            h(
+                'span',
+                { style: 'margin-left:8px; color:var(--muted); font-size:12px;' },
+                'competing blocks referenced by this block',
+            ),
         ),
-        extra > 0 && h('span', { class: 'pill', title: `${extra} more`, style: 'flex:0 0 auto;' }, `+${extra}`),
-    );
-}
-
-function computeOutputsSummaryFromTx(tx) {
-    // Outputs now live inside LedgerTransfer ops; aggregate across them.
-    const ops = Array.isArray(tx?.operations) ? tx.operations : [];
-    const outputs = [];
-    for (const op of ops) {
-        const content = op?.content ?? op;
-        if (content?.type !== 'LedgerTransfer') continue;
-        if (Array.isArray(content.outputs)) outputs.push(...content.outputs);
-    }
-    const count = outputs.length;
-    const total = outputs.reduce((sum, o) => sum + Number(o?.value ?? 0), 0);
-    return { count, total };
-}
-
-function CopyPill({ text }) {
-    const onCopy = async (e) => {
-        e.preventDefault();
-        try {
-            await navigator.clipboard.writeText(String(text ?? ''));
-        } catch {}
-    };
-    return h(
-        'a',
-        {
-            class: 'pill linkish mono',
-            style: 'cursor:pointer; user-select:none;',
-            href: '#',
-            onClick: onCopy,
-            onKeyDown: (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onCopy(e);
-                }
-            },
-            tabIndex: 0,
-            role: 'button',
-        },
-        'Copy',
+        uncles.length === 0 &&
+            h('div', { style: 'padding:12px 14px; color:var(--muted);' }, 'No uncles referenced by this block.'),
+        uncles.length > 0 &&
+            h(
+                'div',
+                { class: 'table-wrapper' },
+                h(
+                    'table',
+                    { class: 'table--blocks' },
+                    h(
+                        'thead',
+                        null,
+                        h(
+                            'tr',
+                            null,
+                            h('th', null, 'Hash'),
+                            h('th', null, 'Slot'),
+                            h('th', null, 'Parent'),
+                            h('th', null, 'Leader key'),
+                        ),
+                    ),
+                    h(
+                        'tbody',
+                        null,
+                        ...uncles.map((u) =>
+                            h(
+                                'tr',
+                                { key: u.hash },
+                                h(
+                                    'td',
+                                    null,
+                                    h(
+                                        'a',
+                                        { class: 'linkish mono', href: PAGE.BLOCK_DETAIL(u.hash), title: u.hash },
+                                        shortenHex(u.hash),
+                                    ),
+                                ),
+                                h('td', null, h('span', { class: 'mono' }, String(u.slot))),
+                                h(
+                                    'td',
+                                    null,
+                                    h(
+                                        'a',
+                                        {
+                                            class: 'linkish mono',
+                                            href: PAGE.BLOCK_DETAIL(u.parent_block),
+                                            title: u.parent_block,
+                                        },
+                                        shortenHex(u.parent_block),
+                                    ),
+                                ),
+                                h(
+                                    'td',
+                                    null,
+                                    h('span', { class: 'mono', title: u.leader_key }, shortenHex(u.leader_key)),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
     );
 }
 
@@ -136,15 +141,13 @@ export default function BlockDetailPage({ parameters }) {
         };
     }, [blockHash, isValidHash]);
 
-    const header = block?.header ?? {}; // back-compat only
     const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
-
-    // Prefer new top-level fields; fallback to legacy header.*
+    const uncles = Array.isArray(block?.uncles) ? block.uncles : [];
     const height = block?.height ?? null;
-    const slot = block?.slot ?? header?.slot ?? null;
-    const blockRoot = block?.block_root ?? header?.block_root ?? '';
-    const currentBlockHash = block?.hash ?? header?.hash ?? '';
-    const parentHash = block?.parent_block_hash ?? header?.parent_block ?? '';
+    const slot = block?.slot ?? null;
+    const blockRoot = block?.block_root ?? '';
+    const currentBlockHash = block?.hash ?? '';
+    const parentHash = block?.parent_block_hash ?? '';
 
     return h(
         'main',
@@ -195,6 +198,8 @@ export default function BlockDetailPage({ parameters }) {
                             { style: 'margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;' },
                             height != null && h('span', { class: 'pill', title: 'Height' }, `Height ${String(height)}`),
                             slot != null && h('span', { class: 'pill', title: 'Slot' }, `Slot ${String(slot)}`),
+                            block?.canonical === false &&
+                                h('span', { class: 'pill', title: 'Not on the canonical chain' }, 'Orphaned'),
                         ),
                     ),
                     h(
@@ -265,7 +270,10 @@ export default function BlockDetailPage({ parameters }) {
                     ),
                 ),
 
-                // Transactions card — rows fill width; Outputs & Gas centered
+                // Uncles card: competing blocks this block references
+                h(UnclesCard, { uncles }),
+
+                // Transactions card
                 h(
                     'div',
                     { class: 'card', style: 'margin-top:16px;' },
@@ -302,11 +310,6 @@ export default function BlockDetailPage({ parameters }) {
                                     ),
                                     h(
                                         'th',
-                                        { style: 'text-align:center; padding:8px 10px; white-space:nowrap;' },
-                                        'Gas (execution / storage)',
-                                    ),
-                                    h(
-                                        'th',
                                         { style: 'text-align:left; padding:8px 10px; white-space:nowrap;' },
                                         'Operations',
                                     ),
@@ -316,9 +319,7 @@ export default function BlockDetailPage({ parameters }) {
                                 'tbody',
                                 null,
                                 ...transactions.map((t) => {
-                                    const { count, total } = computeOutputsSummaryFromTx(t);
-                                    const executionGas = Number(t?.execution_gas_price ?? 0);
-                                    const storageGas = Number(t?.storage_gas_price ?? 0);
+                                    const { count, total } = transferOutputs(t?.operations);
                                     const ops = Array.isArray(t?.operations) ? t.operations : [];
 
                                     return h(
@@ -347,20 +348,11 @@ export default function BlockDetailPage({ parameters }) {
                                             },
                                             `${count} / ${Number(total).toLocaleString(undefined, { maximumFractionDigits: 8 })}`,
                                         ),
-                                        // Gas (center)
-                                        h(
-                                            'td',
-                                            {
-                                                class: 'mono',
-                                                style: 'text-align:center; padding:8px 10px; white-space:nowrap;',
-                                            },
-                                            `${executionGas.toLocaleString()} / ${storageGas.toLocaleString()}`,
-                                        ),
                                         // Operations (left; no wrap)
                                         h(
                                             'td',
                                             { style: 'text-align:left; padding:8px 10px; white-space:nowrap;' },
-                                            opsToPills(ops),
+                                            h(OpPills, { ops }),
                                         ),
                                     );
                                 }),
