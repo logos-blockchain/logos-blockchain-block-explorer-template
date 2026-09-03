@@ -67,8 +67,11 @@ export default function BlocksTable({ live, onDisableLive }) {
                 if (seenKeysRef.current.has(b.hash)) return;
                 seenKeysRef.current.add(b.hash);
 
-                // Newest by height first, keep max TABLE_SIZE (a reorg can deliver a lower height late)
-                liveBlocks = [b, ...liveBlocks].sort((x, y) => y.height - x.height).slice(0, TABLE_SIZE);
+                // One row per height: a reorg replaces the orphaned block at that height.
+                // Newest first, keep max TABLE_SIZE.
+                const byHeight = new Map(liveBlocks.map((x) => [x.height, x]));
+                byHeight.set(b.height, b);
+                liveBlocks = [...byHeight.values()].sort((x, y) => y.height - x.height).slice(0, TABLE_SIZE);
                 setBlocks([...liveBlocks]);
                 setLoading(false);
             },

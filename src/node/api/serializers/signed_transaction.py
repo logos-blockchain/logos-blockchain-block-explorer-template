@@ -173,7 +173,5 @@ class SignedTransactionSerializer(NbeSerializer):
             {
                 "hash": self.transaction.hash,
                 "operations": operations,
-                "execution_gas_price": self.transaction.execution_gas_price,
-                "storage_gas_price": self.transaction.storage_gas_price,
             }
         )

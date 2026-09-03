@@ -164,11 +164,21 @@ class BlockRepository:
         with self.client.session() as session:
             return list(reversed(session.exec(statement).all()))
 
-    async def get_since(self, block_id: int, *, limit: int = 500) -> List[Block]:
-        """Canonical blocks inserted after `block_id`, oldest-first. Drives the live stream."""
-        statement = select(Block).where(Block.canonical, Block.id > block_id).order_by(Block.id.asc()).limit(limit)
+    async def get_since(self, canonical_seq: int, *, limit: int = 500) -> List[Block]:
+        """Blocks that became canonical after stamp `canonical_seq`, in chain order. Drives the live stream."""
+        statement = (
+            select(Block)
+            .where(Block.canonical, Block.canonical_seq > canonical_seq)
+            .order_by(Block.canonical_seq.asc(), Block.height.asc())
+            .limit(limit)
+        )
         with self.client.session() as session:
             return session.exec(statement).all()
+
+    async def max_canonical_seq(self) -> int:
+        """The latest canonical stamp; a stream started from here sees only future changes."""
+        with self.client.session() as session:
+            return session.exec(select(sa_func.max(Block.canonical_seq))).one() or 0
 
     async def get_paginated(self, page: int, page_size: int) -> tuple[List[Block], int]:
         """Canonical blocks, newest first, plus the canonical chain length."""
@@ -202,13 +212,21 @@ def _switch_canonical_chain(session: Session, tip: Block) -> int:
         ancestor_height = current.height
 
     if path_ids:
+        # One stamp per switch: every block flagged here is newer, stream-wise,
+        # than anything flagged before, regardless of row id.
+        next_seq = (session.exec(select(sa_func.max(Block.canonical_seq))).one() or 0) + 1
         session.exec(update(Block).where(Block.canonical, Block.height > ancestor_height).values(canonical=False))
         for start in range(0, len(path_ids), 500):
-            session.exec(update(Block).where(Block.id.in_(path_ids[start : start + 500])).values(canonical=True))
+            session.exec(
+                update(Block)
+                .where(Block.id.in_(path_ids[start : start + 500]))
+                .values(canonical=True, canonical_seq=next_seq)
+            )
         # Keep the in-memory objects consistent with what was just written.
         for block in session.identity_map.values():
             if isinstance(block, Block) and block.id in path_ids:
                 block.canonical = True
+                block.canonical_seq = next_seq
     if len(path_ids) > 1:
         logger.info(f"Canonical chain switched: {len(path_ids)} blocks above height {ancestor_height} now canonical")
     return len(path_ids)

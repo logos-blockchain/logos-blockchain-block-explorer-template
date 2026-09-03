@@ -36,33 +36,27 @@ def get_logging_config(nbe_log_level: str, sqla_log_level: str):
                 "formatter": "uvicorn_access",
             },
         },
+        # Application loggers (node.*, db.*, api.*, ...) propagate to the root.
         "root": {
             "handlers": ["console"],
             "level": nbe_log_level,
         },
         "loggers": {
-            # ---- SQLAlchemy / SQLModel ----
-            "sqlalchemy": {"level": sqla_log_level, "handlers": [], "propagate": False},
-            "sqlalchemy.engine": {"level": sqla_log_level, "handlers": [], "propagate": False},
-            "sqlalchemy.pool": {"level": sqla_log_level, "handlers": [], "propagate": False},
-            "sqlalchemy.orm": {"level": sqla_log_level, "handlers": [], "propagate": False},
-            "sqlalchemy.dialects": {"level": sqla_log_level, "handlers": [], "propagate": False},
-            # ---- Httpx / HttpCore / Urllib3 ----
-            "httpx": {"level": "WARNING", "handlers": ["console"], "propagate": False},
-            "httpcore": {"level": "WARNING", "handlers": ["console"], "propagate": False},
-            "urllib3": {"level": "WARNING", "handlers": ["console"], "propagate": False},
-            # ---- Uvicorn / FastAPI ----
+            # SQLAlchemy is chatty at INFO; keep its level separate but let what
+            # passes reach the console through the root handler.
+            "sqlalchemy": {"level": sqla_log_level},
+            # HTTP client libraries
+            "httpx": {"level": "WARNING"},
+            "httpcore": {"level": "WARNING"},
+            # Uvicorn / FastAPI
             "uvicorn": {"level": "INFO", "handlers": ["uvicorn"], "propagate": False},
-            # "uvicorn.error":  {"level": "INFO", "handlers": ["uvicorn"], "propagate": False},
             "uvicorn.access": {"level": "WARNING", "handlers": ["uvicorn_access"], "propagate": False},
-            # ---- Application ----
-            "src": {"level": nbe_log_level, "handlers": ["console"], "propagate": False},
         },
     }
 
 
 def setup_logging():
     nbe_log_level = os.getenv("NBE_LOG_LEVEL", "INFO").upper()
-    sqla_log_level = os.getenv("SQLALCHEMY_LOG_LEVEL", "ERROR").upper()
+    sqla_log_level = os.getenv("SQLALCHEMY_LOG_LEVEL", "WARNING").upper()
     logging_config = get_logging_config(nbe_log_level, sqla_log_level)
     dictConfig(logging_config)

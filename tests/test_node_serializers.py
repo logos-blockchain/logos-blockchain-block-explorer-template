@@ -125,11 +125,10 @@ class TestBlockParsing:
         assert parsed.hash == bytes.fromhex(block["header"]["id"])
         assert parsed.transactions[0].operations[0].content.type == "ChannelInscribe"
 
-    def test_missing_gas_prices_default_to_zero(self, block):
-        parsed = BlockSerializer.model_validate(block)
-        tx = parsed.transactions[0].into_transaction()
-        assert tx.execution_gas_price == 0
-        assert tx.storage_gas_price == 0
+    def test_missing_header_id_is_rejected(self, block):
+        del block["header"]["id"]
+        with pytest.raises(ValidationError):
+            BlockSerializer.model_validate(block)
 
     def test_missing_hash_is_rejected(self, block):
         # The hash is computed by the node; a payload without it must not be ingested.

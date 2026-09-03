@@ -188,7 +188,7 @@ export default function BlockDetailPage({ parameters }) {
                     ),
                 ),
 
-                // Transactions card — rows fill width; Outputs & Gas centered
+                // Transactions card
                 h(
                     'div',
                     { class: 'card', style: 'margin-top:16px;' },
@@ -225,11 +225,6 @@ export default function BlockDetailPage({ parameters }) {
                                     ),
                                     h(
                                         'th',
-                                        { style: 'text-align:center; padding:8px 10px; white-space:nowrap;' },
-                                        'Gas (execution / storage)',
-                                    ),
-                                    h(
-                                        'th',
                                         { style: 'text-align:left; padding:8px 10px; white-space:nowrap;' },
                                         'Operations',
                                     ),
@@ -240,8 +235,6 @@ export default function BlockDetailPage({ parameters }) {
                                 null,
                                 ...transactions.map((t) => {
                                     const { count, total } = transferOutputs(t?.operations);
-                                    const executionGas = Number(t?.execution_gas_price ?? 0);
-                                    const storageGas = Number(t?.storage_gas_price ?? 0);
                                     const ops = Array.isArray(t?.operations) ? t.operations : [];
 
                                     return h(
@@ -269,15 +262,6 @@ export default function BlockDetailPage({ parameters }) {
                                                 style: 'text-align:center; padding:8px 10px; white-space:nowrap;',
                                             },
                                             `${count} / ${Number(total).toLocaleString(undefined, { maximumFractionDigits: 8 })}`,
-                                        ),
-                                        // Gas (center)
-                                        h(
-                                            'td',
-                                            {
-                                                class: 'mono',
-                                                style: 'text-align:center; padding:8px 10px; white-space:nowrap;',
-                                            },
-                                            `${executionGas.toLocaleString()} / ${storageGas.toLocaleString()}`,
                                         ),
                                         // Operations (left; no wrap)
                                         h(

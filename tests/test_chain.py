@@ -130,13 +130,20 @@ def test_get_latest_and_paginated_follow_canonical_chain(client, repo):
     assert [b.hash for b in page] == [b"\x05", b"\x04"]
 
 
-def test_get_since_returns_new_canonical_blocks_including_reorged_in(client, repo):
-    linear(repo, 3)
-    latest = asyncio.run(repo.get_latest(10))
-    cursor = max(b.id for b in latest)
-
-    asyncio.run(repo.create([make_block(b"\x33", parent=b"\x02", slot=4)]))  # not canonical yet
+def test_get_since_uses_canonical_stamp_not_row_id(client, repo):
+    linear(repo, 2)  # 1 <- 2
+    asyncio.run(repo.create([make_block(b"\x33", parent=b"\x02", slot=3)]))  # A  (id 3) height 3, canonical
+    asyncio.run(repo.create([make_block(b"\x03", parent=b"\x02", slot=4)]))  # B  (id 4) height 3, loses the tie
+    asyncio.run(repo.create([make_block(b"\x34", parent=b"\x33", slot=5)]))  # A' (id 5) height 4, canonical
+    cursor = asyncio.run(repo.max_canonical_seq())
     assert asyncio.run(repo.get_since(cursor)) == []
 
-    asyncio.run(repo.create([make_block(b"\x34", parent=b"\x33", slot=5)]))  # reorg: 33 and 34 become canonical
-    assert [b.hash for b in asyncio.run(repo.get_since(cursor))] == [b"\x33", b"\x34"]
+    # B's branch grows to height 5 and wins. B (id 4) is older than A' (id 5)
+    # but must still reach the stream.
+    asyncio.run(repo.create([make_block(b"\x04", parent=b"\x03", slot=6), make_block(b"\x05", parent=b"\x04", slot=7)]))
+    delivered = asyncio.run(repo.get_since(cursor))
+    assert [b.hash for b in delivered] == [b"\x03", b"\x04", b"\x05"]  # chain order
+    assert all(b.canonical for b in delivered)
+
+    # Advancing the cursor past that switch yields nothing new.
+    assert asyncio.run(repo.get_since(max(b.canonical_seq for b in delivered))) == []

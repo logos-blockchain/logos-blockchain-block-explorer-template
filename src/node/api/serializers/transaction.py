@@ -12,6 +12,3 @@ class TransactionSerializer(NbeSerializer):
     # Blake2b-256("MANTLE_TXHASH_V1" || canonical op encoding), computed by the
     # node. The explorer never derives it locally.
     hash: BytesFromHex = Field(description="Canonical transaction hash.")
-    # Gas prices were dropped from mantle_tx on newer nodes; default to 0 there.
-    execution_gas_price: int = Field(default=0, description="Integer in u64 format.")
-    storage_gas_price: int = Field(default=0, description="Integer in u64 format.")
