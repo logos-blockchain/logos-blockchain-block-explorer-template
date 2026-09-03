@@ -1,8 +1,7 @@
 from http.client import NOT_FOUND
-from typing import TYPE_CHECKING, AsyncIterator, List
+from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 
 from fastapi import Query
-from rusty_results import Empty, Option, Some
 from starlette.responses import JSONResponse, Response
 
 from api.streams import into_ndjson_stream
@@ -36,7 +35,7 @@ async def list_blocks(
 
 
 async def _get_blocks_stream_serialized(
-    app: "NBE", block_from: Option[Block], *, fork: int
+    app: "NBE", block_from: Optional[Block], *, fork: int
 ) -> AsyncIterator[List[BlockRead]]:
     _stream = app.state.block_repository.updates_stream(block_from, fork=fork)
     async for blocks in _stream:
@@ -49,7 +48,7 @@ async def stream(
     fork: int = Query(...),
 ) -> Response:
     latest_blocks = await request.app.state.block_repository.get_latest(prefetch_limit, fork=fork)
-    latest_block = Some(latest_blocks[-1]) if latest_blocks else Empty()
+    latest_block = latest_blocks[-1] if latest_blocks else None
     bootstrap_blocks: List[BlockRead] = [BlockRead.from_block(block) for block in latest_blocks]
 
     blocks_stream: AsyncIterator[List[BlockRead]] = _get_blocks_stream_serialized(request.app, latest_block, fork=fork)
@@ -62,6 +61,6 @@ async def get(request: NBERequest, block_hash: str) -> Response:
         return Response(status_code=NOT_FOUND)
     block_hash = dehexify(block_hash)
     block = await request.app.state.block_repository.get_by_hash(block_hash)
-    return block.map(lambda _block: JSONResponse(BlockRead.from_block(_block).model_dump(mode="json"))).unwrap_or_else(
-        lambda: Response(status_code=NOT_FOUND)
-    )
+    if block is None:
+        return Response(status_code=NOT_FOUND)
+    return JSONResponse(BlockRead.from_block(block).model_dump(mode="json"))

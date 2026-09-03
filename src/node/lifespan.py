@@ -56,7 +56,7 @@ async def backfill_chain_from_hash(app: "NBE", block_hash: str) -> None:
     while True:
         # Check if we already have this block
         existing = await app.state.block_repository.get_by_hash(bytes.fromhex(current_hash))
-        if existing.is_some:
+        if existing is not None:
             logger.debug(f"Block {current_hash[:16]}... already exists, stopping chain walk")
             break
 
@@ -147,7 +147,7 @@ async def subscribe_to_new_blocks(app: "NBE"):
                 block = block_serializer.into_block()
 
                 # Check if parent exists in DB
-                parent_exists = (await app.state.block_repository.get_by_hash(block.parent_block)).is_some
+                parent_exists = await app.state.block_repository.get_by_hash(block.parent_block) is not None
 
                 if not parent_exists:
                     # Need to backfill the chain from this block's parent
@@ -155,7 +155,7 @@ async def subscribe_to_new_blocks(app: "NBE"):
                     await backfill_chain_from_hash(app, block.parent_block.hex())
 
                     # Re-check if parent now exists after backfill
-                    parent_exists = (await app.state.block_repository.get_by_hash(block.parent_block)).is_some
+                    parent_exists = await app.state.block_repository.get_by_hash(block.parent_block) is not None
                     if not parent_exists:
                         logger.warning(
                             f"Parent block still not found after backfill for block at slot {block.slot}. Skipping block."

@@ -1,8 +1,6 @@
 import logging
 from asyncio import sleep
-from typing import AsyncIterator, Dict, List
-
-from rusty_results import Empty, Option, Some
+from typing import AsyncIterator, Dict, List, Optional
 from sqlalchemy import Result, Select, func as sa_func
 from sqlalchemy.orm import aliased
 from sqlmodel import select
@@ -216,25 +214,19 @@ class BlockRepository:
                 session.add_all(channel_operations_for_blocks(blocks_to_add))
                 session.commit()
 
-    async def get_by_id(self, block_id: int) -> Option[Block]:
+    async def get_by_id(self, block_id: int) -> Optional[Block]:
         statement = select(Block).where(Block.id == block_id)
 
         with self.client.session() as session:
             result: Result[Block] = session.exec(statement)
-            if (block := result.one_or_none()) is not None:
-                return Some(block)
-            else:
-                return Empty()
+            return result.one_or_none()
 
-    async def get_by_hash(self, block_hash: bytes) -> Option[Block]:
+    async def get_by_hash(self, block_hash: bytes) -> Optional[Block]:
         statement = select(Block).where(Block.hash == block_hash)
 
         with self.client.session() as session:
             result: Result[Block] = session.exec(statement)
-            if (block := result.one_or_none()) is not None:
-                return Some(block)
-            else:
-                return Empty()
+            return result.one_or_none()
 
     async def get_latest(self, limit: int, *, fork: int, ascending: bool = True) -> List[Block]:
         if limit == 0:
@@ -247,25 +239,18 @@ class BlockRepository:
             b = results.all()
             return b
 
-    async def get_fork_choice(self) -> Option[int]:
+    async def get_fork_choice(self) -> Optional[int]:
         """Return the fork number of the longest chain (block with max height)."""
         statement = select(Block.fork).order_by(Block.height.desc()).limit(1)
         with self.client.session() as session:
-            result = session.exec(statement).one_or_none()
-            if result is not None:
-                return Some(result)
-            else:
-                return Empty()
+            return session.exec(statement).one_or_none()
 
-    async def get_earliest(self) -> Option[Block]:
+    async def get_earliest(self) -> Optional[Block]:
         statement = select(Block).order_by(Block.height.asc()).limit(1)
 
         with self.client.session() as session:
             results: Result[Block] = session.exec(statement)
-            if (block := results.one_or_none()) is not None:
-                return Some(block)
-            else:
-                return Empty()
+            return results.one_or_none()
 
     async def get_paginated(self, page: int, page_size: int, *, fork: int) -> tuple[List[Block], int]:
         """
@@ -292,9 +277,9 @@ class BlockRepository:
         return blocks, total_count
 
     async def updates_stream(
-        self, block_from: Option[Block], *, fork: int, timeout_seconds: int = 1
+        self, block_from: Optional[Block], *, fork: int, timeout_seconds: int = 1
     ) -> AsyncIterator[List[Block]]:
-        height_cursor: int = block_from.map(lambda block: block.height + 1).unwrap_or(0)
+        height_cursor: int = block_from.height + 1 if block_from is not None else 0
 
         while True:
             statement = (

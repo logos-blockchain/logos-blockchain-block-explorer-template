@@ -257,11 +257,9 @@ def test_batch_with_fork_and_chain(client, repo):
 
 
 def test_fork_choice_empty_db(client, repo):
-    """Fork choice returns Empty when no blocks exist."""
-    from rusty_results import Empty
-
+    """Fork choice returns None when no blocks exist."""
     result = asyncio.run(repo.get_fork_choice())
-    assert isinstance(result, Empty)
+    assert result is None
 
 
 def test_fork_choice_single_chain(client, repo):
@@ -271,7 +269,7 @@ def test_fork_choice_single_chain(client, repo):
     asyncio.run(repo.create([genesis, a]))
 
     result = asyncio.run(repo.get_fork_choice())
-    assert result.unwrap() == 0
+    assert result == 0
 
 
 def test_fork_choice_returns_longest_fork(client, repo):
@@ -296,7 +294,7 @@ def test_fork_choice_returns_longest_fork(client, repo):
     asyncio.run(repo.create([c]))
 
     result = asyncio.run(repo.get_fork_choice())
-    assert result.unwrap() == 0
+    assert result == 0
 
 
 def test_fork_choice_switches_on_overtake(client, repo):
@@ -322,7 +320,7 @@ def test_fork_choice_switches_on_overtake(client, repo):
     asyncio.run(repo.create([c]))
 
     result = asyncio.run(repo.get_fork_choice())
-    assert result.unwrap() == 1
+    assert result == 1
 
 
 # --- Fork-filtered query tests ---

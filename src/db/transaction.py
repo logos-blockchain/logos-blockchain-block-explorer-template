@@ -1,7 +1,5 @@
 from asyncio import sleep
-from typing import AsyncIterator, List
-
-from rusty_results import Empty, Option, Some
+from typing import AsyncIterator, List, Optional
 from sqlalchemy import Result, Select, String, cast, func as sa_func
 from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import select
@@ -42,17 +40,14 @@ class TransactionRepository:
             session.add_all(list(transaction))
             session.commit()
 
-    async def get_by_id(self, transaction_id: int) -> Option[Transaction]:
+    async def get_by_id(self, transaction_id: int) -> Optional[Transaction]:
         statement = select(Transaction).where(Transaction.id == transaction_id)
 
         with self.client.session() as session:
             result: Result[Transaction] = session.exec(statement)
-            if (transaction := result.one_or_none()) is not None:
-                return Some(transaction)
-            else:
-                return Empty()
+            return result.one_or_none()
 
-    async def get_by_hash(self, transaction_hash: bytes, *, fork: int) -> Option[Transaction]:
+    async def get_by_hash(self, transaction_hash: bytes, *, fork: int) -> Optional[Transaction]:
         chain = chain_block_ids_cte(fork=fork)
         statement = (
             select(Transaction)
@@ -63,10 +58,7 @@ class TransactionRepository:
 
         with self.client.session() as session:
             result: Result[Transaction] = session.exec(statement)
-            if (transaction := result.first()) is not None:
-                return Some(transaction)
-            else:
-                return Empty()
+            return result.first()
 
     async def get_latest(
         self, limit: int, *, fork: int, ascending: bool = False, preload_relationships: bool = False
@@ -137,10 +129,10 @@ class TransactionRepository:
         return transactions, total_count
 
     async def updates_stream(
-        self, transaction_from: Option[Transaction], *, fork: int, timeout_seconds: int = 1
+        self, transaction_from: Optional[Transaction], *, fork: int, timeout_seconds: int = 1
     ) -> AsyncIterator[List[Transaction]]:
-        height_cursor = transaction_from.map(lambda transaction: transaction.block.height).unwrap_or(0)
-        transaction_id_cursor = transaction_from.map(lambda transaction: transaction.id + 1).unwrap_or(0)
+        height_cursor = transaction_from.block.height if transaction_from is not None else 0
+        transaction_id_cursor = transaction_from.id + 1 if transaction_from is not None else 0
 
         while True:
             statement = (
