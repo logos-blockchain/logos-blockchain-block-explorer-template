@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import Any, List, Literal, Optional
 
+from pydantic import AliasChoices, Field
+
 from core.models import NbeSchema
 from core.types import HexBytes
 from models.transactions.notes import Note
@@ -19,6 +21,7 @@ class ContentType(Enum):
     SDP_WITHDRAW = "SDPWithdraw"
     SDP_ACTIVE = "SDPActive"
     LEADER_CLAIM = "LeaderClaim"
+    CLAIM_POW_REWARD = "ClaimPowReward"
 
 
 class NbeContent(NbeSchema):
@@ -62,6 +65,8 @@ class ChannelSetKeys(NbeContent):
 class ChannelConfig(NbeContent):
     type: Literal["ChannelConfig"] = "ChannelConfig"
     channel: HexBytes
+    # Config-chain parent, added in node 0.3.0. None for rows ingested from older nodes.
+    parent: Optional[HexBytes] = None
     keys: List[HexBytes]
     posting_timeframe: int
     posting_timeout: int
@@ -100,14 +105,15 @@ class SDPDeclare(NbeContent):
     locators: List[str]
     provider_id: HexBytes
     zk_id: HexBytes
-    locked_note_id: HexBytes
+    # Renamed from locked_note_id in node 0.3.0; the alias keeps older DB rows loading.
+    service_note_id: HexBytes = Field(validation_alias=AliasChoices("service_note_id", "locked_note_id"))
 
 
 class SDPWithdraw(NbeContent):
     type: Literal["SDPWithdraw"] = "SDPWithdraw"
     declaration_id: HexBytes
     nonce: int
-    locked_note_id: HexBytes
+    service_note_id: HexBytes = Field(validation_alias=AliasChoices("service_note_id", "locked_note_id"))
 
 
 class SDPActive(NbeContent):
@@ -122,6 +128,15 @@ class LeaderClaim(NbeContent):
     rewards_root: HexBytes
     voucher_nullifier: HexBytes
     pk: HexBytes
+
+
+class ClaimPowReward(NbeContent):
+    """Redeems a proof-of-work reward ticket (node 0.3.0+). Carries no proof."""
+
+    type: Literal["ClaimPowReward"] = "ClaimPowReward"
+    epoch_nonce: HexBytes
+    block_hash: HexBytes
+    public_key: HexBytes
 
 
 class UnknownOp(NbeContent):
@@ -149,5 +164,6 @@ OperationContent = (
     | SDPWithdraw
     | SDPActive
     | LeaderClaim
+    | ClaimPowReward
     | UnknownOp
 )

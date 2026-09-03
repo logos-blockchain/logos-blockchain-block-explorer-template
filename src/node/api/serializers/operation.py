@@ -2,7 +2,7 @@ import logging
 from random import randint
 from typing import Annotated, Any, List, Optional, Self, Union
 
-from pydantic import BeforeValidator, Field
+from pydantic import AliasChoices, BeforeValidator, Field
 
 from core.models import NbeSerializer
 from models.transactions.operations.contents import SDPDeclareServiceType
@@ -13,7 +13,7 @@ from utils.random import random_bytes
 
 logger = logging.getLogger(__name__)
 
-# Mantle op opcodes (node 0.2.1-rc.3: core/src/mantle/ops/mod.rs).
+# Mantle op opcodes (node 0.3.0-rc.2: core/src/mantle/ops/mod.rs).
 OPCODE_TRANSFER = 0  # 0x00
 OPCODE_CHANNEL_CONFIG = 16  # 0x10
 OPCODE_CHANNEL_INSCRIBE = 17  # 0x11
@@ -24,6 +24,7 @@ OPCODE_SDP_DECLARE = 32  # 0x20
 OPCODE_SDP_WITHDRAW = 33  # 0x21
 OPCODE_SDP_ACTIVE = 34  # 0x22
 OPCODE_LEADER_CLAIM = 48  # 0x30
+OPCODE_CLAIM_POW_REWARD = 64  # 0x40
 
 
 class LedgerOpSerializer(NbeSerializer, FromRandom):
@@ -51,6 +52,8 @@ class ChannelConfigOpSerializer(NbeSerializer, FromRandom):
     """
 
     channel: BytesFromHexOrIntArray = Field(description="Channel ID.")
+    # Added in node 0.3.0: the config-chain parent (MsgId::root() for a first config).
+    parent: Optional[BytesFromHexOrIntArray] = Field(default=None, description="Parent config message id.")
     keys: List[BytesFromHexOrIntArray] = Field(description="Channel signing public keys.")
     posting_timeframe: int = Field(description="Posting timeframe in slots (u32).")
     posting_timeout: int = Field(description="Posting timeout in slots (u32).")
@@ -62,6 +65,7 @@ class ChannelConfigOpSerializer(NbeSerializer, FromRandom):
         return cls.model_validate(
             {
                 "channel": random_bytes(32).hex(),
+                "parent": random_bytes(32).hex(),
                 "keys": [random_bytes(32).hex()],
                 "posting_timeframe": randint(1, 100),
                 "posting_timeout": randint(1, 100),
@@ -152,7 +156,11 @@ class SDPDeclareOpSerializer(NbeSerializer, FromRandom):
     locators: List[str] = Field(description="Multiaddr strings, e.g. /ip4/.../udp/.../quic-v1.")
     provider_id: BytesFromHex = Field(description="Provider ID in hex format.")
     zk_id: BytesFromHex = Field(description="ZK ID in hex format.")
-    locked_note_id: BytesFromHex = Field(description="Locked note ID in hex format.")
+    # Node 0.3.0 renamed locked_note_id -> service_note_id.
+    service_note_id: BytesFromHex = Field(
+        validation_alias=AliasChoices("service_note_id", "locked_note_id"),
+        description="Service (stake) note ID in hex format.",
+    )
 
     @classmethod
     def from_random(cls) -> Self:
@@ -162,7 +170,7 @@ class SDPDeclareOpSerializer(NbeSerializer, FromRandom):
                 "locators": ["/ip4/127.0.0.1/udp/3400/quic-v1"],
                 "provider_id": random_bytes(32).hex(),
                 "zk_id": random_bytes(32).hex(),
-                "locked_note_id": random_bytes(32).hex(),
+                "service_note_id": random_bytes(32).hex(),
             }
         )
 
@@ -193,7 +201,11 @@ class SDPWithdrawOpSerializer(NbeSerializer, FromRandom):
 
     declaration_id: BytesFromHex = Field(description="Declaration ID in hex format.")
     nonce: int = Field(description="Nonce in u64 format.")
-    locked_note_id: BytesFromHex = Field(description="Locked note ID in hex format.")
+    # Node 0.3.0 renamed locked_note_id -> service_note_id.
+    service_note_id: BytesFromHex = Field(
+        validation_alias=AliasChoices("service_note_id", "locked_note_id"),
+        description="Service (stake) note ID in hex format.",
+    )
 
     @classmethod
     def from_random(cls) -> Self:
@@ -201,7 +213,7 @@ class SDPWithdrawOpSerializer(NbeSerializer, FromRandom):
             {
                 "declaration_id": random_bytes(32).hex(),
                 "nonce": randint(0, 1_000),
-                "locked_note_id": random_bytes(32).hex(),
+                "service_note_id": random_bytes(32).hex(),
             }
         )
 
@@ -220,6 +232,28 @@ class LeaderClaimOpSerializer(NbeSerializer, FromRandom):
                 "rewards_root": random_bytes(32).hex(),
                 "voucher_nullifier": random_bytes(32).hex(),
                 "pk": random_bytes(32).hex(),
+            }
+        )
+
+
+class ClaimPowRewardOpSerializer(NbeSerializer, FromRandom):
+    """Claim PoW reward op (opcode 64, node 0.3.0+): redeems a mined puzzle ticket.
+
+    Carries no proof (OpProof::None). `block_hash` is a plain [u8; 32] on the
+    node, which serde emits as an int array; the Fr fields arrive as hex.
+    """
+
+    epoch_nonce: BytesFromHexOrIntArray = Field(description="Epoch nonce the ticket was mined against (Fr).")
+    block_hash: BytesFromHexOrIntArray = Field(description="Hash of the block the ticket was mined on.")
+    public_key: BytesFromHexOrIntArray = Field(description="Reward recipient ZK public key (Fr).")
+
+    @classmethod
+    def from_random(cls) -> Self:
+        return cls.model_validate(
+            {
+                "epoch_nonce": random_bytes(32).hex(),
+                "block_hash": list(random_bytes(32)),
+                "public_key": random_bytes(32).hex(),
             }
         )
 
@@ -246,6 +280,7 @@ OPCODE_TO_SERIALIZER: dict[int, type] = {
     OPCODE_SDP_WITHDRAW: SDPWithdrawOpSerializer,
     OPCODE_SDP_ACTIVE: SDPActiveOpSerializer,
     OPCODE_LEADER_CLAIM: LeaderClaimOpSerializer,
+    OPCODE_CLAIM_POW_REWARD: ClaimPowRewardOpSerializer,
 }
 
 
@@ -260,6 +295,7 @@ MantleOpSerializerVariants = Union[
     SDPWithdrawOpSerializer,
     SDPActiveOpSerializer,
     LeaderClaimOpSerializer,
+    ClaimPowRewardOpSerializer,
     UnknownOpSerializer,
 ]
 _MANTLE_OP_SERIALIZER_CLASSES = tuple(OPCODE_TO_SERIALIZER.values()) + (UnknownOpSerializer,)

@@ -8,6 +8,7 @@ from models.transactions.operations.proofs import (
     ChannelMultiSignature,
     Ed25519Signature,
     NbeSignature,
+    NoneProof,
     PoCSignature,
     UnknownSignature,
     ZkAndEd25519Signature,
@@ -127,9 +128,22 @@ class ChannelMultiSigProofSerializer(OperationProofSerializer, NbeSerializer):
 
     @classmethod
     def from_random(cls, *args, **kwargs) -> Self:
-        return cls.model_validate(
-            {"signatures": [{"signature": random_bytes(64).hex(), "channel_key_index": 0}]}
-        )
+        return cls.model_validate({"signatures": [{"signature": random_bytes(64).hex(), "channel_key_index": 0}]})
+
+
+class NoneProofSerializer(OperationProofSerializer, NbeSerializer):
+    """Ops that carry no proof (node 0.3.0+: ClaimPowReward).
+
+    Serialized by the node as `{"None": null}`; older builds used the bare
+    string "NoProof".
+    """
+
+    def into_operation_proof(self) -> NbeSignature:
+        return NoneProof()
+
+    @classmethod
+    def from_random(cls, *args, **kwargs) -> Self:
+        return cls()
 
 
 class UnknownProofSerializer(OperationProofSerializer, NbeSerializer):
@@ -156,12 +170,17 @@ PROOF_TAG_TO_SERIALIZER = {
     "PoC": PoCProofSerializer,
     "ChannelMultiSigProof": ChannelMultiSigProofSerializer,
 }
+NO_PROOF_MARKERS = ("None", "NoProof")
 
 
 def _parse_proof(data: Any) -> OperationProofSerializer:
     if isinstance(data, OperationProofSerializer):
         return data
+    if data is None or data in NO_PROOF_MARKERS:
+        return NoneProofSerializer()
     if isinstance(data, dict):
+        if len(data) == 1 and next(iter(data)) in NO_PROOF_MARKERS:
+            return NoneProofSerializer()
         for tag, serializer_class in PROOF_TAG_TO_SERIALIZER.items():
             if tag in data:
                 try:
@@ -179,6 +198,7 @@ OperationProofSerializerVariants = Union[
     ZkAndEd25519SignaturesSerializer,
     PoCProofSerializer,
     ChannelMultiSigProofSerializer,
+    NoneProofSerializer,
     UnknownProofSerializer,
 ]
 OperationProofSerializerField = Annotated[

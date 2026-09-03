@@ -12,6 +12,7 @@ from node.api.serializers.operation import (
     ChannelInscribeOpSerializer,
     ChannelTransferOpSerializer,
     ChannelWithdrawOpSerializer,
+    ClaimPowRewardOpSerializer,
     LeaderClaimOpSerializer,
     LedgerOpSerializer,
     SDPActiveOpSerializer,
@@ -22,6 +23,7 @@ from node.api.serializers.operation import (
 from node.api.serializers.proof import (
     ChannelMultiSigProofSerializer,
     Ed25519SignatureSerializer,
+    NoneProofSerializer,
     OperationProofSerializerField,
     PoCProofSerializer,
     UnknownProofSerializer,
@@ -52,6 +54,8 @@ def _proof_to_internal(proof) -> dict:
                 {"signature": s.signature, "channel_key_index": s.channel_key_index} for s in proof.signatures
             ],
         }
+    if isinstance(proof, NoneProofSerializer):
+        return {"type": "None"}
     if isinstance(proof, UnknownProofSerializer):
         return {"type": "Unknown", "raw": proof.raw}
     raise ValueError(f"Unsupported proof type: {type(proof).__name__}")
@@ -68,6 +72,7 @@ def _op_to_content(op) -> dict:
         return {
             "type": "ChannelConfig",
             "channel": op.channel,
+            "parent": op.parent,
             "keys": list(op.keys),
             "posting_timeframe": op.posting_timeframe,
             "posting_timeout": op.posting_timeout,
@@ -109,14 +114,14 @@ def _op_to_content(op) -> dict:
             "locators": list(op.locators),
             "provider_id": op.provider_id,
             "zk_id": op.zk_id,
-            "locked_note_id": op.locked_note_id,
+            "service_note_id": op.service_note_id,
         }
     if isinstance(op, SDPWithdrawOpSerializer):
         return {
             "type": "SDPWithdraw",
             "declaration_id": op.declaration_id,
             "nonce": op.nonce,
-            "locked_note_id": op.locked_note_id,
+            "service_note_id": op.service_note_id,
         }
     if isinstance(op, SDPActiveOpSerializer):
         return {
@@ -131,6 +136,13 @@ def _op_to_content(op) -> dict:
             "rewards_root": op.rewards_root,
             "voucher_nullifier": op.voucher_nullifier,
             "pk": op.pk,
+        }
+    if isinstance(op, ClaimPowRewardOpSerializer):
+        return {
+            "type": "ClaimPowReward",
+            "epoch_nonce": op.epoch_nonce,
+            "block_hash": op.block_hash,
+            "public_key": op.public_key,
         }
     if isinstance(op, UnknownOpSerializer):
         return {
@@ -162,8 +174,7 @@ class SignedTransactionSerializer(NbeSerializer, FromRandom):
         ops = self.transaction.ops
         if len(ops) != len(self.operations_proofs):
             raise ValueError(
-                f"Number of ops ({len(ops)}) does not match number of op proofs "
-                f"({len(self.operations_proofs)})."
+                f"Number of ops ({len(ops)}) does not match number of op proofs " f"({len(self.operations_proofs)})."
             )
 
         operations: List[dict] = [
