@@ -1,4 +1,4 @@
-from asyncio import Task, gather
+from asyncio import Task
 from typing import Optional
 
 from fastapi import FastAPI
@@ -42,7 +42,6 @@ class NBESettings(BaseSettings):
 
 
 class NBEState(State):
-    signal_exit: bool = False  # TODO: asyncio.Event
     node_api: HttpNodeApi
     db_client: DbClient
     block_repository: BlockRepository
@@ -50,20 +49,6 @@ class NBEState(State):
     channel_repository: ChannelOperationRepository
     chain_notifier: ChainNotifier
     subscription_to_updates_handle: Task
-
-    @property
-    def is_running(self) -> bool:
-        return not self.signal_exit
-
-    async def stop(self):
-        self.signal_exit = True
-        await self._wait_tasks_finished()
-
-    async def _wait_tasks_finished(self):
-        await gather(
-            self.subscription_to_updates_handle,
-            return_exceptions=True,
-        )
 
 
 class NBE(FastAPI):

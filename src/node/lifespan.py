@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from asyncio import create_task
-from contextlib import asynccontextmanager
+from asyncio import CancelledError, create_task
+from contextlib import asynccontextmanager, suppress
 from itertools import batched
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, List
 
@@ -107,9 +107,16 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
         # Backfill to LIB on startup
         await backfill_to_lib(app)
 
-        app.state.subscription_to_updates_handle = create_task(subscribe_to_new_blocks(app))
+        subscription = create_task(subscribe_to_new_blocks(app))
+        app.state.subscription_to_updates_handle = subscription
 
         yield
+
+        # The ingestion loop blocks on the node's block stream, so shutdown has
+        # to cancel it explicitly or the process never exits on SIGTERM.
+        subscription.cancel()
+        with suppress(CancelledError):
+            await subscription
     finally:
         logger.info("Closing node_api connections...")
         await app.state.node_api.aclose()
@@ -129,7 +136,7 @@ async def subscribe_to_new_blocks(app: "NBE"):
     blocks_stream = app.state.node_api.get_blocks_stream()
 
     try:
-        while app.state.is_running:
+        while True:
             try:
                 block_serializer = await anext(blocks_stream)
             except TimeoutError:
