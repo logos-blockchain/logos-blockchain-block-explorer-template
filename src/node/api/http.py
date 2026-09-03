@@ -5,10 +5,7 @@ from urllib.parse import urljoin, urlunparse
 
 import httpx
 from pydantic import ValidationError
-from rusty_results import Empty, Option, Some
-from third_party import requests
 
-from core.authentication import Authentication
 from node.api.serializers.block import BlockSerializer
 from node.api.serializers.health import HealthSerializer
 from node.api.serializers.info import InfoSerializer
@@ -48,11 +45,8 @@ class HttpNodeApi:
         self.port: int = settings.node_api_port
         self.protocol: str = settings.node_api_protocol or "http"
         self.timeout: int = settings.node_api_timeout or 60
-        self.authentication: Option[Authentication] = (
-            Some(settings.node_api_auth) if settings.node_api_auth else Empty()
-        )
-        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
-        self._client = httpx.AsyncClient(timeout=self.timeout, auth=auth)
+        self.auth: Optional[httpx.BasicAuth] = settings.node_api_auth.for_httpx() if settings.node_api_auth else None
+        self._client = httpx.AsyncClient(timeout=self.timeout, auth=self.auth)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -77,37 +71,26 @@ class HttpNodeApi:
             path = ""
 
         network_location = f"{host}:{self.port}" if self.port else host
+        return urlunparse((self.protocol, network_location, path, "", "", ""))
 
-        url = urlunparse(
-            (
-                self.protocol,
-                network_location,
-                path,
-                # The following are unused but required
-                "",  # Params
-                "",  # Query
-                "",  # Fragment
-            )
-        )
-        return url
+    def _url(self, endpoint: str) -> str:
+        return urljoin(self.base_url, endpoint)
 
     async def get_health(self) -> HealthSerializer:
-        url = urljoin(self.base_url, self.ENDPOINT_INFO)
-        response = requests.get(url, auth=self.authentication, timeout=60)
-        if response.status_code == 200:
-            return HealthSerializer.from_healthy()
-        else:
+        try:
+            response = await self._client.get(self._url(self.ENDPOINT_INFO))
+        except httpx.HTTPError as error:
+            logger.debug(f"Node health check failed: {error}")
             return HealthSerializer.from_unhealthy()
+        return HealthSerializer.from_healthy() if response.status_code == 200 else HealthSerializer.from_unhealthy()
 
     async def get_info(self) -> InfoSerializer:
-        url = urljoin(self.base_url, self.ENDPOINT_INFO)
-        response = requests.get(url, auth=self.authentication, timeout=60)
+        response = await self._client.get(self._url(self.ENDPOINT_INFO))
         response.raise_for_status()
         return InfoSerializer.model_validate(normalize_info_payload(response.json()))
 
     async def get_block_by_hash(self, block_hash: str) -> Optional[BlockSerializer]:
-        url = urljoin(self.base_url, self.ENDPOINT_BLOCK_BY_HASH + block_hash)
-        response = await self._client.get(url)
+        response = await self._client.get(self._url(self.ENDPOINT_BLOCK_BY_HASH + block_hash))
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -118,12 +101,10 @@ class HttpNodeApi:
         return BlockSerializer.model_validate(json_data)
 
     async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
-        url = urljoin(self.base_url, self.ENDPOINT_BLOCKS_STREAM)
-        auth = self.authentication.map(lambda _auth: _auth.for_httpx()).unwrap_or(None)
-        # Use no read timeout for streaming - blocks may arrive infrequently
+        # No read timeout for streaming: blocks may arrive infrequently.
         stream_timeout = httpx.Timeout(connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
-        async with httpx.AsyncClient(timeout=stream_timeout, auth=auth) as client:
-            async with client.stream("GET", url) as response:
+        async with httpx.AsyncClient(timeout=stream_timeout, auth=self.auth) as client:
+            async with client.stream("GET", self._url(self.ENDPOINT_BLOCKS_STREAM)) as response:
                 response.raise_for_status()  # TODO: Result
 
                 async for line in response.aiter_lines():

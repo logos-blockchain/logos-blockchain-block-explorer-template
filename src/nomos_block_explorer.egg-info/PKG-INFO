@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: nomos-block-explorer
+Version: 0.1.0
+Requires-Python: <3.15,>=3.14
+License-File: LICENSE-APACHE-v2
+License-File: LICENSE-MIT
+Requires-Dist: fastapi~=0.120.2
+Requires-Dist: httpx>=0.28.1
+Requires-Dist: pydantic-settings>=2.11.0
+Requires-Dist: rusty-results~=1.1.1
+Requires-Dist: sqlmodel~=0.0.25
+Requires-Dist: uvicorn~=0.38.0
+Dynamic: license-file
