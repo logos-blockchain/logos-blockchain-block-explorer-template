@@ -5,7 +5,7 @@ from json import loads
 from types import SimpleNamespace
 
 import pytest
-from sqlmodel import delete, select
+from sqlmodel import select
 
 from api.v1.channels import get_channel, list_channels
 from db.blocks import BlockRepository
@@ -217,29 +217,3 @@ def test_channels_follow_the_canonical_chain(blocks, request_for):
     )
     payload = loads(asyncio.run(list_channels(request_for, limit=8, ops_limit=25)).body)
     assert {ch["channel_id"]: ch["op_count"] for ch in payload["channels"]} == {CH_B.hex(): 2, CH_A.hex(): 1}
-
-
-def test_backfill_indexes_only_unindexed_transactions(client, blocks, channels):
-    build_chain(blocks, [[make_tx(1, [inscribe(CH_A)])], [make_tx(2, [inscribe(CH_B), inscribe(CH_B)])]])
-
-    # Simulate a DB created before the index existed: drop the rows for the last tx.
-    with client.session() as session:
-        last_tx_id = session.exec(select(Transaction.id).order_by(Transaction.id.desc())).first()
-        session.exec(delete(ChannelOperation).where(ChannelOperation.transaction_id == last_tx_id))
-        session.commit()
-
-    assert asyncio.run(channels.backfill()) == 2
-    assert asyncio.run(channels.backfill()) == 0  # idempotent
-
-    with client.session() as session:
-        assert session.exec(select(ChannelOperation)).all().__len__() == 3
-
-
-def test_backfill_from_empty_index(client, blocks, channels):
-    build_chain(blocks, [[make_tx(1, [inscribe(CH_A), config(CH_A)])], [make_tx(2, [transfer()])]])
-    with client.session() as session:
-        session.exec(delete(ChannelOperation))
-        session.commit()
-
-    assert asyncio.run(channels.backfill(batch_size=1)) == 2
-    assert asyncio.run(channels.count(CH_A)) == 2

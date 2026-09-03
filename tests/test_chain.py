@@ -1,7 +1,6 @@
 """Tests for height assignment and canonical-chain tracking in BlockRepository."""
 
 import asyncio
-import sqlite3
 from typing import Dict
 
 import pytest
@@ -141,54 +140,3 @@ def test_get_since_returns_new_canonical_blocks_including_reorged_in(client, rep
 
     asyncio.run(repo.create([make_block(b"\x34", parent=b"\x33", slot=5)]))  # reorg: 33 and 34 become canonical
     assert [b.hash for b in asyncio.run(repo.get_since(cursor))] == [b"\x33", b"\x34"]
-
-
-def test_rebuild_canonical_chain(client, repo):
-    linear(repo, 4)
-    asyncio.run(repo.create([make_block(b"\x33", parent=b"\x02", slot=9)]))
-    with client.session() as session:
-        for block in session.exec(select(Block)).all():
-            block.canonical = True  # corrupt the flags
-        session.commit()
-
-    assert asyncio.run(repo.rebuild_canonical_chain()) == 4
-    assert canonical_hashes(client) == {bytes([i]) for i in range(1, 5)}
-
-
-def test_migrates_database_from_before_canonical_flag(tmp_path):
-    path = tmp_path / "old.db"
-    old = sqlite3.connect(path)
-    old.executescript("""
-        CREATE TABLE block (
-            id INTEGER NOT NULL PRIMARY KEY, hash BLOB NOT NULL UNIQUE, parent_block BLOB NOT NULL,
-            slot INTEGER NOT NULL, height INTEGER NOT NULL, fork INTEGER NOT NULL,
-            block_root BLOB NOT NULL, proof_of_leadership JSON NOT NULL);
-        CREATE TABLE "transaction" (
-            id INTEGER NOT NULL PRIMARY KEY, block_id INTEGER NOT NULL REFERENCES block(id),
-            hash BLOB NOT NULL, operations JSON NOT NULL,
-            execution_gas_price INTEGER NOT NULL, storage_gas_price INTEGER NOT NULL);
-        """)
-    pol = '{"type":"GROTH16","entropy_contribution":"00","leader_key":"00","proof":"00","voucher_cm":"00"}'
-    rows = [
-        (1, b"\x01", b"\x00", 0, 1, 0),
-        (2, b"\x02", b"\x01", 1, 2, 0),
-        (3, b"\x03", b"\x02", 2, 3, 0),
-        (4, b"\x33", b"\x02", 3, 3, 1),  # sibling on old fork 1
-    ]
-    old.executemany("INSERT INTO block VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [(*r, b"\x00", pol) for r in rows])
-    old.commit()
-    old.close()
-
-    client = SqliteClient(sqlite_db_path=f"sqlite:///{path}")
-    assert client.needs_canonical_rebuild
-    assert asyncio.run(BlockRepository(client).rebuild_canonical_chain()) == 3
-    assert canonical_hashes(client) == {b"\x01", b"\x02", b"\x03"}
-
-    with client.engine.connect() as connection:
-        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(block)")}
-        indexes = {row[1] for row in connection.exec_driver_sql("PRAGMA index_list(block)")}
-    assert "canonical" in columns and "fork" not in columns
-    assert {"ix_block_canonical_height", "ix_block_parent_block", "ix_block_height"} <= indexes
-
-    # Reopening is a no-op.
-    assert not SqliteClient(sqlite_db_path=f"sqlite:///{path}").needs_canonical_rebuild

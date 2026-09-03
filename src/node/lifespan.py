@@ -104,15 +104,6 @@ async def node_lifespan(app: "NBE") -> AsyncGenerator[None]:
     app.state.chain_notifier = ChainNotifier()
 
     try:
-        if db_client.needs_canonical_rebuild:
-            length = await app.state.block_repository.rebuild_canonical_chain()
-            logger.info(f"Computed canonical flags for an existing database: chain length {length}.")
-
-        # Index channel ops for transactions stored before the channel index existed
-        indexed = await app.state.channel_repository.backfill()
-        if indexed:
-            logger.info(f"Indexed {indexed} channel operations from existing transactions.")
-
         # Backfill to LIB on startup
         await backfill_to_lib(app)
 

@@ -6,12 +6,10 @@ from sqlmodel import select
 
 from db.clients import DbClient
 from models.block import Block
-from models.channel_operation import ChannelOperation, channel_operations_of
+from models.channel_operation import ChannelOperation
 from models.transactions.transaction import Transaction
 
 logger = logging.getLogger(__name__)
-
-BACKFILL_BATCH_SIZE = 2_000
 
 ChannelOperationRow = Tuple[ChannelOperation, Transaction, Block]
 
@@ -19,31 +17,6 @@ ChannelOperationRow = Tuple[ChannelOperation, Transaction, Block]
 class ChannelOperationRepository:
     def __init__(self, client: DbClient):
         self.client = client
-
-    async def backfill(self, batch_size: int = BACKFILL_BATCH_SIZE) -> int:
-        """Index channel operations for transactions stored before this table existed.
-
-        New blocks write their rows in the same commit (see BlockRepository.create),
-        so only transactions newer than the last indexed one need scanning. Returns
-        the number of rows inserted.
-        """
-        inserted = 0
-        with self.client.session() as session:
-            cursor = session.exec(select(sa_func.max(ChannelOperation.transaction_id))).one() or 0
-            while True:
-                statement = (
-                    select(Transaction).where(Transaction.id > cursor).order_by(Transaction.id.asc()).limit(batch_size)
-                )
-                transactions = session.exec(statement).all()
-                if not transactions:
-                    break
-                rows = [row for transaction in transactions for row in channel_operations_of(transaction)]
-                if rows:
-                    session.add_all(rows)
-                    session.commit()
-                    inserted += len(rows)
-                cursor = transactions[-1].id
-        return inserted
 
     async def list_top(self, *, limit: int) -> List[Tuple[bytes, int, int]]:
         """(channel_id, op_count, last_height) for the most active channels on the canonical chain."""

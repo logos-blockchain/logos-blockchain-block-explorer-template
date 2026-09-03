@@ -148,21 +148,6 @@ class BlockRepository:
 
             session.commit()
 
-    async def rebuild_canonical_chain(self) -> int:
-        """Recompute the canonical flags from scratch; returns the canonical chain length.
-
-        Used once when a database predating the flag is opened. Walks parent
-        links from the highest block (lowest id breaks ties) down to the root.
-        """
-        with self.client.session() as session:
-            tip = session.exec(select(Block).order_by(Block.height.desc(), Block.id.asc()).limit(1)).first()
-            if tip is None:
-                return 0
-            session.exec(update(Block).values(canonical=False))
-            length = _switch_canonical_chain(session, tip)
-            session.commit()
-            return length
-
     async def get_by_hash(self, block_hash: bytes) -> Optional[Block]:
         statement = select(Block).where(Block.hash == block_hash)
 
