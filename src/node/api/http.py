@@ -1,17 +1,18 @@
 import json
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 from urllib.parse import urljoin, urlunparse
 
 import httpx
 from pydantic import ValidationError
 
+from models.health import Health
 from node.api.serializers.block import BlockSerializer
-from node.api.serializers.health import HealthSerializer
 from node.api.serializers.info import InfoSerializer
 
 if TYPE_CHECKING:
-    from core.app import NBESettings
+    from core.settings import Settings
 
 
 logger = logging.getLogger(__name__)
@@ -34,18 +35,32 @@ def normalize_info_payload(data: dict) -> dict:
     return info
 
 
+@dataclass(frozen=True)
+class BlockEvent:
+    """One entry of the node's block stream: a processed block plus the chain state after it.
+
+    `tip` is the node's canonical tip after processing the block, which is not
+    necessarily the block itself (it may be an uncle, or a replay of the current
+    state on connect). The explorer follows `tip`, never its own fork choice.
+    """
+
+    block: BlockSerializer
+    tip: bytes
+    lib_slot: int
+
+
 class HttpNodeApi:
     # Paths can't have a leading slash since they are relative to the base URL
     ENDPOINT_INFO = "cryptarchia/info"
     ENDPOINT_BLOCKS_STREAM = "cryptarchia/events/blocks/stream"
     ENDPOINT_BLOCK_BY_HASH = "cryptarchia/blocks/"  # block hash appended as path segment
 
-    def __init__(self, settings: "NBESettings"):
+    def __init__(self, settings: "Settings"):
         self.host: str = settings.node_api_host
         self.port: int = settings.node_api_port
         self.protocol: str = settings.node_api_protocol or "http"
         self.timeout: int = settings.node_api_timeout or 60
-        self.auth: Optional[httpx.BasicAuth] = settings.node_api_auth.for_httpx() if settings.node_api_auth else None
+        self.auth: Optional[httpx.BasicAuth] = settings.node_api_auth
         self._client = httpx.AsyncClient(timeout=self.timeout, auth=self.auth)
 
     async def aclose(self) -> None:
@@ -76,13 +91,13 @@ class HttpNodeApi:
     def _url(self, endpoint: str) -> str:
         return urljoin(self.base_url, endpoint)
 
-    async def get_health(self) -> HealthSerializer:
+    async def get_health(self) -> Health:
         try:
             response = await self._client.get(self._url(self.ENDPOINT_INFO))
         except httpx.HTTPError as error:
             logger.debug(f"Node health check failed: {error}")
-            return HealthSerializer.from_unhealthy()
-        return HealthSerializer.from_healthy() if response.status_code == 200 else HealthSerializer.from_unhealthy()
+            return Health(healthy=False)
+        return Health(healthy=response.status_code == 200)
 
     async def get_info(self) -> InfoSerializer:
         response = await self._client.get(self._url(self.ENDPOINT_INFO))
@@ -100,7 +115,7 @@ class HttpNodeApi:
             return None
         return BlockSerializer.model_validate(json_data)
 
-    async def get_blocks_stream(self) -> AsyncIterator[BlockSerializer]:
+    async def get_blocks_stream(self) -> AsyncIterator[BlockEvent]:
         # No read timeout for streaming: blocks may arrive infrequently.
         stream_timeout = httpx.Timeout(connect=self.timeout, read=None, write=self.timeout, pool=self.timeout)
         async with httpx.AsyncClient(timeout=stream_timeout, auth=self.auth) as client:
@@ -113,9 +128,11 @@ class HttpNodeApi:
                     try:
                         event = json.loads(line)
                         block = BlockSerializer.model_validate(event["block"])
-                    except (ValidationError, KeyError, json.JSONDecodeError) as error:
+                        tip = bytes.fromhex(event["tip"])
+                        lib_slot = int(event["lib_slot"])
+                    except (ValidationError, KeyError, ValueError, json.JSONDecodeError) as error:
                         logger.exception(error)
                         continue
 
                     logger.debug(f"Received new block from Node: {block}")
-                    yield block
+                    yield BlockEvent(block=block, tip=tip, lib_slot=lib_slot)

@@ -1,8 +1,8 @@
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 
 
-class UncleHeader(NbeSchema):
+class UncleHeader(LbeSchema):
     """A competing block referenced by a canonical block (Bedrock uncle reference).
 
     Only the header identity is kept: the uncle block itself is usually also

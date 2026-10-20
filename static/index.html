@@ -21,7 +21,8 @@
         </script>
         <link rel="modulepreload" href="static/vendor/preact/preact.module.js" />
         <link rel="modulepreload" href="static/vendor/preact/hooks.module.js" />
-        <link rel="modulepreload" href="static/app.js" />
+        <!-- Every app module, filled in by the server, so they load at once rather than one import level at a time -->
+        __MODULE_PRELOADS__
     </head>
     <body>
         <div id="app"></div>

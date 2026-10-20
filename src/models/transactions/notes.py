@@ -1,7 +1,7 @@
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 
 
-class Note(NbeSchema):
+class Note(LbeSchema):
     value: int
     public_key: HexBytes

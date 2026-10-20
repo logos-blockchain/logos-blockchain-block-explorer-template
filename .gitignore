@@ -1,7 +1,7 @@
 .venv/
 .idea/
 **/__pycache__/**
-sqlite.db
+sqlite.db*
 *.ignore*
 .env
 uv.lock

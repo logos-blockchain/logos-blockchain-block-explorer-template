@@ -3,7 +3,7 @@ from typing import Annotated, Any, List, Optional, Self, Union
 
 from pydantic import AliasChoices, BeforeValidator, Field
 
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from models.transactions.operations.contents import SDPDeclareServiceType
 from node.api.serializers.fields import BytesFromHex, BytesFromHexOrIntArray
 from node.api.serializers.note import NoteSerializer
@@ -24,14 +24,14 @@ OPCODE_LEADER_CLAIM = 48  # 0x30
 OPCODE_CLAIM_POW_REWARD = 64  # 0x40
 
 
-class LedgerOpSerializer(NbeSerializer):
+class LedgerOpSerializer(LbeSerializer):
     """Mantle ledger op (opcode 0): consumes input notes and produces outputs."""
 
     inputs: List[BytesFromHex] = Field(description="Input note IDs (Fr).")
     outputs: List[NoteSerializer]
 
 
-class ChannelConfigOpSerializer(NbeSerializer):
+class ChannelConfigOpSerializer(LbeSerializer):
     """Channel config op (opcode 16): configures a channel's keys, timeframes and thresholds.
 
     Replaces the pre-0.2.x set-keys op.
@@ -47,7 +47,7 @@ class ChannelConfigOpSerializer(NbeSerializer):
     transfer_threshold: int = Field(description="Signatures required to transfer/withdraw (u16).")
 
 
-class ChannelDepositOpSerializer(NbeSerializer):
+class ChannelDepositOpSerializer(LbeSerializer):
     """Channel deposit op (opcode 18): locks input notes into a channel."""
 
     channel_id: BytesFromHexOrIntArray = Field(description="Channel ID.")
@@ -55,14 +55,14 @@ class ChannelDepositOpSerializer(NbeSerializer):
     metadata: BytesFromHexOrIntArray = Field(description="Deposit metadata bytes.")
 
 
-class ChannelWithdrawOpSerializer(NbeSerializer):
+class ChannelWithdrawOpSerializer(LbeSerializer):
     """Channel withdraw op (opcode 19): withdraws channel notes."""
 
     channel_id: BytesFromHexOrIntArray = Field(description="Channel ID.")
     inputs: List[BytesFromHex] = Field(description="Input note IDs (Fr).")
 
 
-class ChannelTransferOpSerializer(NbeSerializer):
+class ChannelTransferOpSerializer(LbeSerializer):
     """Channel transfer op (opcode 20): transfers channel notes to new outputs."""
 
     channel_id: BytesFromHexOrIntArray = Field(description="Channel ID.")
@@ -70,7 +70,7 @@ class ChannelTransferOpSerializer(NbeSerializer):
     outputs: List[NoteSerializer]
 
 
-class ChannelInscribeOpSerializer(NbeSerializer):
+class ChannelInscribeOpSerializer(LbeSerializer):
     """Channel inscribe op (opcode 17): writes an inscription to a channel."""
 
     channel_id: BytesFromHex = Field(description="Channel ID in hex format.")
@@ -81,7 +81,7 @@ class ChannelInscribeOpSerializer(NbeSerializer):
     signer: BytesFromHex = Field(description="Signer public key in hex format.")
 
 
-class SDPDeclareOpSerializer(NbeSerializer):
+class SDPDeclareOpSerializer(LbeSerializer):
     """SDP declare op (opcode 32): registers a service provider."""
 
     service_type: SDPDeclareServiceType
@@ -95,7 +95,7 @@ class SDPDeclareOpSerializer(NbeSerializer):
     )
 
 
-class SDPActiveOpSerializer(NbeSerializer):
+class SDPActiveOpSerializer(LbeSerializer):
     """SDP active op (opcode 34): proves a declared provider is online."""
 
     declaration_id: BytesFromHex = Field(description="Declaration ID in hex format.")
@@ -106,7 +106,7 @@ class SDPActiveOpSerializer(NbeSerializer):
     )
 
 
-class SDPWithdrawOpSerializer(NbeSerializer):
+class SDPWithdrawOpSerializer(LbeSerializer):
     """SDP withdraw op (opcode 33): withdraws a provider's locked stake."""
 
     declaration_id: BytesFromHex = Field(description="Declaration ID in hex format.")
@@ -118,7 +118,7 @@ class SDPWithdrawOpSerializer(NbeSerializer):
     )
 
 
-class LeaderClaimOpSerializer(NbeSerializer):
+class LeaderClaimOpSerializer(LbeSerializer):
     """Leader claim op (opcode 48): claims a leader reward voucher."""
 
     rewards_root: BytesFromHex = Field(description="Rewards merkle root (Fr).")
@@ -126,7 +126,7 @@ class LeaderClaimOpSerializer(NbeSerializer):
     pk: BytesFromHex = Field(description="Reward recipient ZK public key (Fr).")
 
 
-class ClaimPowRewardOpSerializer(NbeSerializer):
+class ClaimPowRewardOpSerializer(LbeSerializer):
     """Claim PoW reward op (opcode 64, node 0.3.0+): redeems a mined puzzle ticket.
 
     Carries no proof (OpProof::None). `block_hash` is a plain [u8; 32] on the
@@ -138,7 +138,7 @@ class ClaimPowRewardOpSerializer(NbeSerializer):
     public_key: BytesFromHexOrIntArray = Field(description="Reward recipient ZK public key (Fr).")
 
 
-class UnknownOpSerializer(NbeSerializer):
+class UnknownOpSerializer(LbeSerializer):
     """Fallback for opcodes without a typed serializer.
 
     Preserves the opcode and raw payload verbatim so unknown (e.g. newly

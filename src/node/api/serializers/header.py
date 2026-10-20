@@ -1,10 +1,10 @@
 from pydantic import AliasChoices, Field
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from node.api.serializers.fields import BytesFromHex
 from node.api.serializers.proof_of_leadership import ProofOfLeadershipSerializerField
 
 
-class HeaderSerializer(NbeSerializer):
+class HeaderSerializer(LbeSerializer):
     hash: BytesFromHex = Field(alias="id", description="Block hash in hex format.")
     parent_block: BytesFromHex = Field(description="Hash in hex format.")
     slot: int = Field(description="Integer in u64 format.")

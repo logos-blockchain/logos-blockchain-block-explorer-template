@@ -22,7 +22,8 @@ export function summarize(content) {
     switch (content?.type) {
         case 'ChannelInscribe': {
             const preview = inscriptionPreview(content.inscription);
-            const size = content.inscription ? content.inscription.length / 2 : 0;
+            // The channels overview sends only the inscription's head, with its full size.
+            const size = content.inscription_size ?? (content.inscription ? content.inscription.length / 2 : 0);
             return preview ? `“${preview}”` : `${size} B payload`;
         }
         case 'ChannelConfig':
