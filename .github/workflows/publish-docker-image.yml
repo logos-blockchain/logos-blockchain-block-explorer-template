@@ -3,8 +3,8 @@ name: Publish Explorer Docker Image
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Docker image tag to use"
+      tags:
+        description: "Docker image tags, comma-separated (e.g. testnet,devnet)"
         required: true
         default: "latest"
 
@@ -33,6 +33,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve image tags
+        id: tags
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          # One "registry/image:tag" line per comma-separated tag, for build-push-action.
+          {
+            echo "list<<EOF"
+            for tag in $(echo "$TAGS" | tr ',' ' '); do
+              if ! [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+                echo "::error::Invalid Docker tag: $tag" >&2
+                exit 1
+              fi
+              echo "$REGISTRY/$IMAGE_NAME:$tag"
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         id: push
         uses: docker/build-push-action@v6
@@ -41,11 +59,13 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+          tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Summary
+        env:
+          IMAGES: ${{ steps.tags.outputs.list }}
         run: |
-          echo "Image published to ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}"
+          echo "Image published to:"
+          echo "$IMAGES"
