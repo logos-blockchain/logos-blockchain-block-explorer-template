@@ -524,7 +524,7 @@ tr.ph td {
     color: var(--muted);
 }
 
-/* ---------- Note search ---------- */
+/* ---------- Note / public key search ---------- */
 
 .note-search {
     display: flex;
@@ -548,7 +548,18 @@ tr.ph td {
     border-radius: 0;
 }
 
-.note-search input:focus {
+.note-search select {
+    padding: 3px 4px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--fg);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0;
+}
+
+.note-search input:focus,
+.note-search select:focus {
     outline: none;
     border-color: var(--accent);
 }

@@ -10,7 +10,7 @@ from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.http import ChainVersionCache
-from api.v1 import blocks, channels, health, live, notes, transactions
+from api.v1 import blocks, channels, health, live, references, transactions
 from core.notifier import ChainNotifier
 from core.settings import Settings
 from db import Database
@@ -36,7 +36,8 @@ ROUTES = [
     Route("/api/v1/transactions/stream", transactions.stream),
     Route("/api/v1/transactions/list", transactions.list_transactions),
     Route("/api/v1/transactions/{transaction_hash}", transactions.get),
-    Route("/api/v1/notes/{note_id}", notes.search),
+    Route("/api/v1/notes/{note_id}", references.search_note),
+    Route("/api/v1/keys/{public_key}", references.search_public_key),
     Route("/api/v1/channels/list", channels.list_channels),
     Route("/api/v1/channels/{channel_id}", channels.get_channel),
     Route("/api/v1/blocks/stream", blocks.stream),

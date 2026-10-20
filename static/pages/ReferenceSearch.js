@@ -1,13 +1,23 @@
-// static/pages/NoteSearch.js
-// Search results for a note id: every transaction with an op referencing it.
+// static/pages/ReferenceSearch.js
+// Search results for a note id or public key: every transaction with an op naming it.
 import { h, Fragment } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { API, PAGE, BASE_PATH } from '../lib/api.js';
 import { shortenHex } from '../lib/utils.js';
-import NoteSearchBar from '../components/NoteSearchBar.js';
+import SearchBar, { SEARCH_KINDS } from '../components/SearchBar.js';
+
+const KINDS = {
+    note: { search: API.NOTE_SEARCH, empty: 'No transactions spend this note.' },
+    public_key: {
+        search: API.KEY_SEARCH,
+        empty: 'No transactions name this public key.',
+        // Spends carry only note ids, which the explorer cannot tie back to their owner's key.
+        caveat: "Lists notes sent to this key and ops it signed or claimed, not spends of the key's notes.",
+    },
+};
 
 function MatchTag({ match }) {
-    const detail = match.input_index != null ? ` #${match.input_index}` : '';
+    const detail = match.item_index != null ? ` #${match.item_index}` : '';
     return h(
         'span',
         { class: 'pill note-match-tag', title: `operation #${match.op_index} · field ${match.field}` },
@@ -52,14 +62,16 @@ function ResultRow({ tx }) {
     );
 }
 
-export default function NoteSearch({ parameters }) {
-    const noteId = parameters?.[0];
-    const isValidId = typeof noteId === 'string' && noteId.length > 0;
+export default function ReferenceSearch({ kind, parameters }) {
+    const key = parameters?.[0];
+    const isValidKey = typeof key === 'string' && key.length > 0;
+    const { label } = SEARCH_KINDS[kind];
+    const { search, empty, caveat } = KINDS[kind];
 
     const [data, setData] = useState(null);
     const [err, setErr] = useState(null);
 
-    const pageTitle = useMemo(() => `Note ${shortenHex(noteId)}`, [noteId]);
+    const pageTitle = useMemo(() => `${label} ${shortenHex(key)}`, [label, key]);
     useEffect(() => {
         document.title = pageTitle;
     }, [pageTitle]);
@@ -68,8 +80,8 @@ export default function NoteSearch({ parameters }) {
         setData(null);
         setErr(null);
 
-        if (!isValidId) {
-            setErr({ kind: 'invalid', msg: 'Invalid note id.' });
+        if (!isValidKey) {
+            setErr({ kind: 'invalid', msg: `Invalid ${label.toLowerCase()}.` });
             return;
         }
 
@@ -78,13 +90,13 @@ export default function NoteSearch({ parameters }) {
 
         (async () => {
             try {
-                const res = await fetch(API.NOTE_SEARCH(noteId), {
+                const res = await fetch(search(key), {
                     cache: 'no-cache',
                     signal: controller.signal,
                 });
                 if (res.status === 400) {
                     const payload = await res.json().catch(() => null);
-                    if (alive) setErr({ kind: 'invalid', msg: payload?.detail ?? 'Invalid note id.' });
+                    if (alive) setErr({ kind: 'invalid', msg: payload?.detail ?? `Invalid ${label.toLowerCase()}.` });
                     return;
                 }
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -93,7 +105,7 @@ export default function NoteSearch({ parameters }) {
                 setData(payload);
             } catch (e) {
                 if (!alive || e?.name === 'AbortError') return;
-                setErr({ kind: 'network', msg: e?.message ?? 'Failed to search for note' });
+                setErr({ kind: 'network', msg: e?.message ?? 'Search failed' });
             }
         })();
 
@@ -101,7 +113,7 @@ export default function NoteSearch({ parameters }) {
             alive = false;
             controller.abort();
         };
-    }, [noteId, isValidId]);
+    }, [key, isValidKey, label, search]);
 
     return h(
         'main',
@@ -114,7 +126,7 @@ export default function NoteSearch({ parameters }) {
             h('h1', { style: 'margin:0' }, pageTitle),
         ),
 
-        h(NoteSearchBar, { initialValue: noteId ?? '' }),
+        h(SearchBar, { key: `${kind}:${key}`, initialKind: kind, initialValue: key ?? '' }),
 
         err?.kind === 'invalid' && h('p', { style: 'color:var(--danger)' }, err.msg),
         err?.kind === 'network' && h('p', { style: 'color:var(--danger)' }, `Error: ${err.msg}`),
@@ -128,10 +140,11 @@ export default function NoteSearch({ parameters }) {
                 h(
                     'div',
                     { class: 'note-search-head' },
-                    h('span', { class: 'pill mono', style: 'overflow-wrap:anywhere;' }, data.note_id),
+                    h('span', { class: 'pill mono', style: 'overflow-wrap:anywhere;' }, data.key),
                     h('span', { class: 'channel-count' }, `${data.count} transaction${data.count === 1 ? '' : 's'}`),
                 ),
-                data.count === 0 && h('div', { class: 'channels-empty' }, 'No transactions reference this note id.'),
+                caveat && h('div', { class: 'channel-detail-scan-note' }, caveat),
+                data.count === 0 && h('div', { class: 'channels-empty' }, empty),
                 data.count > 0 &&
                     h(
                         'div',

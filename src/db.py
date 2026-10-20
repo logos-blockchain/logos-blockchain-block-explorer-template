@@ -16,6 +16,7 @@ from models.channel_operation import ChannelOperation, channel_operations_of
 from models.header.proof_of_leadership import ProofOfLeadership
 from models.header.uncle import UncleHeader
 from models.transactions.operations.operation import Operation
+from models.transactions.references import ReferenceKind, TransactionReference, references_of
 from models.transactions.transaction import Transaction
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,20 @@ CREATE INDEX IF NOT EXISTS ix_channel_operation_transaction_id ON channel_operat
 -- Covers the per-channel sort keys, so paging a channel never reads the table rows it skips.
 CREATE INDEX IF NOT EXISTS ix_channel_operation_channel_order
     ON channel_operation (channel_id, block_id, transaction_id, op_index);
+
+-- One row per note id or public key an operation names (see models.transactions.references),
+-- written with its transaction, so searching by either is an index lookup.
+CREATE TABLE IF NOT EXISTS tx_reference (
+    id             INTEGER PRIMARY KEY,
+    block_id       INTEGER NOT NULL REFERENCES block (id),
+    transaction_id INTEGER NOT NULL REFERENCES tx (id),
+    kind           TEXT    NOT NULL,  -- 'note' or 'public_key'
+    key            BLOB    NOT NULL,
+    op_index       INTEGER NOT NULL,
+    field          TEXT    NOT NULL,
+    item_index     INTEGER            -- position in a list field
+);
+CREATE INDEX IF NOT EXISTS ix_tx_reference_key ON tx_reference (kind, key, block_id, transaction_id);
 """
 
 _PROOF_JSON = TypeAdapter(ProofOfLeadership)
@@ -89,6 +104,7 @@ IN_CHUNK = 500
 T = TypeVar("T")
 TransactionWithBlock = Tuple[Transaction, Block]
 ChannelOperationRow = Tuple[ChannelOperation, Transaction, Block]
+ReferencingTransaction = Tuple[Transaction, Block, List[TransactionReference]]
 
 
 def _chunks(items: Sequence[T], size: int = IN_CHUNK) -> Iterator[Sequence[T]]:
@@ -235,6 +251,14 @@ class Database:
                     for op in channel_operations_of(transaction)
                 ],
             )
+            self.conn.executemany(
+                "INSERT INTO tx_reference (block_id, transaction_id, kind, key, op_index, field, item_index)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (ref.block_id, ref.transaction_id, ref.kind, ref.key, ref.op_index, ref.field, ref.item_index)
+                    for ref in references_of(transaction)
+                ],
+            )
 
     def _stored_hashes(self, hashes: Sequence[bytes]) -> set[bytes]:
         stored: set[bytes] = set()
@@ -372,17 +396,36 @@ class Database:
             (canonical_seq, limit),
         )
 
-    def search_transactions_by_note(self, note_id: bytes, *, limit: int) -> List[TransactionWithBlock]:
-        """Canonical transactions whose operations JSON contains the note id's hex, newest first.
-
-        This is a textual prefilter: the hex could in principle appear in a
-        non-note field (signature, public key, metadata), so callers must
-        verify which operations actually reference the note.
-        """
-        return self._transactions(
-            "WHERE b.canonical = 1 AND t.operations LIKE ? ORDER BY b.height DESC, t.id DESC LIMIT ?",
-            (f"%{note_id.hex()}%", limit),
+    def transactions_referencing(self, kind: ReferenceKind, key: bytes, *, limit: int) -> List[ReferencingTransaction]:
+        """Canonical transactions naming a note id or public key, newest first, with the fields that name it."""
+        ids = self._ids(
+            "SELECT DISTINCT r.transaction_id, b.height FROM tx_reference r JOIN block b ON b.id = r.block_id"
+            " WHERE r.kind = ? AND r.key = ? AND b.canonical = 1"
+            " ORDER BY b.height DESC, r.transaction_id DESC LIMIT ?",
+            (kind, key, limit),
         )
+        pairs = self._transactions_by_id(ids)
+        references: Dict[int, List[TransactionReference]] = {transaction.id: [] for transaction, _ in pairs}
+        for chunk in _chunks(list(references)):
+            rows = self.conn.execute(
+                "SELECT block_id, transaction_id, op_index, field, item_index FROM tx_reference"
+                f" WHERE kind = ? AND key = ? AND transaction_id IN ({_marks(chunk)})"
+                " ORDER BY transaction_id, op_index, id",
+                (kind, key, *chunk),
+            )
+            for block_id, transaction_id, op_index, field, item_index in rows:
+                references[transaction_id].append(
+                    TransactionReference(
+                        block_id=block_id,
+                        transaction_id=transaction_id,
+                        kind=kind,
+                        key=key,
+                        op_index=op_index,
+                        field=field,
+                        item_index=item_index,
+                    )
+                )
+        return [(transaction, block, references[transaction.id]) for transaction, block in pairs]
 
     def paginated_transactions(self, page: int, page_size: int) -> Tuple[List[TransactionWithBlock], int]:
         """Canonical transactions, newest first, plus the total count."""
@@ -396,6 +439,9 @@ class Database:
 
     def _transactions(self, clause: str, params: tuple) -> List[TransactionWithBlock]:
         ids = self._ids(f"SELECT t.id FROM tx t JOIN block b ON b.id = t.block_id {clause}", params)
+        return self._transactions_by_id(ids)
+
+    def _transactions_by_id(self, ids: List[int]) -> List[TransactionWithBlock]:
         rows = self._rows_by_id(
             f"SELECT {_TX_COLUMNS_T}, {_BLOCK_COLUMNS_B} FROM tx t JOIN block b ON b.id = t.block_id WHERE t.id IN",
             ids,

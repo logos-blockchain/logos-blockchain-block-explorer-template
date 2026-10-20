@@ -28,12 +28,14 @@ const CHANNEL_DETAIL_BY_ID = (channelId, page, pageSize) =>
     `${joinUrl(API_PREFIX, 'channels', encodeHash(channelId))}?${query({ page, 'page-size': pageSize })}`;
 
 const NOTE_SEARCH = (noteId) => joinUrl(API_PREFIX, 'notes', encodeHash(noteId));
+const KEY_SEARCH = (publicKey) => joinUrl(API_PREFIX, 'keys', encodeHash(publicKey));
 
 export const API = {
     LIVE_STREAM,
     CHANNELS_LIST,
     CHANNEL_DETAIL_BY_ID,
     NOTE_SEARCH,
+    KEY_SEARCH,
     TRANSACTION_DETAIL_BY_HASH,
     TRANSACTIONS_LIST,
     BLOCK_DETAIL_BY_HASH,
@@ -44,10 +46,12 @@ const BLOCK_DETAIL = (hash) => joinUrl(`${BASE_PATH}/blocks`, encodeHash(hash));
 const TRANSACTION_DETAIL = (hash) => joinUrl(`${BASE_PATH}/transactions`, encodeHash(hash));
 const CHANNEL_DETAIL = (channelId) => joinUrl(`${BASE_PATH}/channel`, encodeHash(channelId));
 const NOTE_DETAIL = (noteId) => joinUrl(`${BASE_PATH}/notes`, encodeHash(noteId));
+const KEY_DETAIL = (publicKey) => joinUrl(`${BASE_PATH}/keys`, encodeHash(publicKey));
 
 export const PAGE = {
     BLOCK_DETAIL,
     TRANSACTION_DETAIL,
     CHANNEL_DETAIL,
     NOTE_DETAIL,
+    KEY_DETAIL,
 };
