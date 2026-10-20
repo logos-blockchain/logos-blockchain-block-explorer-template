@@ -21,6 +21,8 @@ class Block(LbeSchema):
     canonical_seq: int = 0
     block_root: HexBytes
     proof_of_leadership: ProofOfLeadership
+    # Stored with the block, so summaries need not load `transactions`.
+    transaction_count: int = 0
     # Competing blocks this block references (Bedrock uncle references).
     uncles: List[UncleHeader] = Field(default_factory=list)
     transactions: List[Transaction] = Field(default_factory=list)

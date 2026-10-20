@@ -32,7 +32,7 @@ class BlockSummary(LbeSchema):
             slot=block.slot,
             height=block.height,
             block_root=block.block_root,
-            transaction_count=len(block.transactions),
+            transaction_count=block.transaction_count,
             uncle_count=len(block.uncles),
         )
 
