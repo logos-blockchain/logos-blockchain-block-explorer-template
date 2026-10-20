@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
@@ -64,6 +65,24 @@ class RootPathMiddleware:
         await self.app(scope, receive, send)
 
 
+class CompressionMiddleware:
+    """gzip responses, except the live NDJSON streams.
+
+    Starlette's gzip holds streamed bodies in its compressor until enough
+    accumulates, which would stall a stream's lines indefinitely.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        self.gzip = GZipMiddleware(app, compresslevel=6)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"].endswith("/stream"):
+            await self.app(scope, receive, send)
+        else:
+            await self.gzip(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app: Starlette):
     settings: Settings = app.state.settings
@@ -85,7 +104,10 @@ def create_app(settings: Settings) -> Starlette:
         routes=ROUTES,
         lifespan=lifespan,
         exception_handlers={HTTPException: http_exception},
-        middleware=[Middleware(RootPathMiddleware, root_path=settings.base_path)],
+        middleware=[
+            Middleware(RootPathMiddleware, root_path=settings.base_path),
+            Middleware(CompressionMiddleware),
+        ],
     )
     app.state.settings = settings
     return app

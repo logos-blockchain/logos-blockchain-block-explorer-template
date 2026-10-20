@@ -4,9 +4,12 @@ import sqlite3
 from types import SimpleNamespace
 
 import pytest
+from starlette.applications import Starlette
+from starlette.responses import StreamingResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from app import create_app
+from app import CompressionMiddleware, create_app
 from core.settings import Settings
 from db import Database
 
@@ -43,3 +46,17 @@ def test_bad_query_parameters_are_400(client):
     response = client.get("/api/v1/blocks/list?page-size=abc")
     assert response.status_code == 400
     assert "page-size" in response.json()["detail"]
+
+
+def test_responses_are_gzipped_but_streams_are_not(client):
+    page = client.get("/web/explorer/", headers={"Accept-Encoding": "gzip"})
+    assert page.headers["content-encoding"] == "gzip"
+    script = client.get("/web/explorer/static/app.js", headers={"Accept-Encoding": "gzip"})
+    assert script.headers["content-encoding"] == "gzip"
+
+    async def lines(_request):
+        return StreamingResponse(iter([b"{}\n" * 1000]), media_type="application/x-ndjson")
+
+    streams = TestClient(CompressionMiddleware(Starlette(routes=[Route("/api/v1/blocks/stream", lines)])))
+    response = streams.get("/api/v1/blocks/stream", headers={"Accept-Encoding": "gzip"})
+    assert "content-encoding" not in response.headers
