@@ -8,7 +8,9 @@ from urllib.parse import urlencode
 import pytest
 from starlette.requests import Request
 
-from api.v1.channels import get_channel, list_channels
+from api.http import ChainVersionCache
+from api.v1.channels import INSCRIPTION_PREVIEW_BYTES, get_channel, list_channels
+from core.notifier import ChainNotifier
 from db import Database
 from models.block import Block
 from models.header.proof_of_leadership import Groth16ProofOfLeadership
@@ -81,7 +83,7 @@ def db(tmp_path):
 
 
 def request(db: Database, path_params: dict | None = None, **query) -> Request:
-    """A GET request against an app whose state holds `db`."""
+    """A GET request against an app whose state holds `db` (and an empty response cache)."""
     scope = {
         "type": "http",
         "method": "GET",
@@ -89,7 +91,7 @@ def request(db: Database, path_params: dict | None = None, **query) -> Request:
         "headers": [],
         "query_string": urlencode(query).encode(),
         "path_params": path_params or {},
-        "app": SimpleNamespace(state=SimpleNamespace(db=db)),
+        "app": SimpleNamespace(state=SimpleNamespace(db=db, cache=ChainVersionCache(ChainNotifier()))),
     }
     return Request(scope)
 
@@ -231,3 +233,40 @@ def test_channels_follow_the_canonical_chain(db):
     )
     payload = channels(db, limit=8, ops_limit=25)
     assert {ch["channel_id"]: ch["op_count"] for ch in payload["channels"]} == {CH_B.hex(): 2, CH_A.hex(): 1}
+
+
+def test_list_cuts_inscriptions_to_a_preview_with_their_size(db):
+    long_text = b"x" * (INSCRIPTION_PREVIEW_BYTES * 4)
+    build_chain(db, [[make_tx(1, [inscribe(CH_A, long_text)])], [make_tx(2, [inscribe(CH_A, b"short")])]])
+
+    short_op, long_op = channels(db, limit=8, ops_limit=25)["channels"][0]["operations"]
+    assert long_op["content"]["inscription"] == long_text[:INSCRIPTION_PREVIEW_BYTES].hex()
+    assert long_op["content"]["inscription_size"] == len(long_text)
+    assert short_op["content"]["inscription"] == b"short".hex()
+    assert short_op["content"]["inscription_size"] == 5
+    # The channel's own page still serves inscriptions whole.
+    full = channel(db, CH_A.hex(), page=0, page_size=25)["operations"][0]["content"]
+    assert full["inscription"] == long_text.hex()
+
+
+def test_list_is_cached_until_the_chain_changes_and_revalidates_by_etag(db):
+    build_chain(db, [[make_tx(1, [inscribe(CH_A)])]])
+    req = request(db, limit=8, **{"ops-limit": 25})
+    notifier = req.app.state.cache.notifier
+
+    def get(headers: dict | None = None):
+        scope = {**req.scope, "headers": [(k.encode(), v.encode()) for k, v in (headers or {}).items()]}
+        return asyncio.run(list_channels(Request(scope)))
+
+    first = get()
+    etag = first.headers["etag"]
+    newer = make_block(block_hash(3), parent=block_hash(2), slot=20, transactions=[make_tx(2, [inscribe(CH_B)])])
+    extend(db, newer, tip=True)
+    # No publish yet: the cached body and ETag still stand.
+    assert get().body == first.body
+    assert get({"if-none-match": etag}).status_code == 304
+
+    asyncio.run(notifier.publish())
+    fresh = get({"if-none-match": etag})
+    assert fresh.status_code == 200 and fresh.headers["etag"] != etag
+    assert {ch["channel_id"] for ch in loads(fresh.body)["channels"]} == {CH_A.hex(), CH_B.hex()}

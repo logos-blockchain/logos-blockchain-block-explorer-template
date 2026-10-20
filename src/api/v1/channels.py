@@ -7,6 +7,8 @@ from api.http import query_int
 from db import ChannelOperationRow
 
 CHANNEL_ID_BYTES = 32
+# The overview shows a one-line preview per op; inscriptions run to hundreds of KB.
+INSCRIPTION_PREVIEW_BYTES = 128
 
 
 def _parse_channel_id(raw: str) -> bytes | None:
@@ -16,6 +18,18 @@ def _parse_channel_id(raw: str) -> bytes | None:
     except ValueError:
         return None
     return channel_id if len(channel_id) == CHANNEL_ID_BYTES else None
+
+
+def _preview(content: dict) -> dict:
+    """An op's content for the overview: an inscription cut to its head, with its full size alongside."""
+    if content["type"] != "ChannelInscribe":
+        return content
+    inscription = content["inscription"]  # hex
+    return {
+        **content,
+        "inscription": inscription[: INSCRIPTION_PREVIEW_BYTES * 2],
+        "inscription_size": len(inscription) // 2,
+    }
 
 
 def serialize_operation(row: ChannelOperationRow, *, index: int | None = None) -> dict | None:
@@ -74,25 +88,32 @@ async def get_channel(request: Request) -> Response:
 
 
 async def list_channels(request: Request) -> Response:
-    """Top channels by total activity on the canonical chain, each with its most recent operations."""
+    """Top channels by total activity on the canonical chain, each with its most recent operations.
+
+    Inscriptions are cut to a preview (see `_preview`); the channel's own page has them in full.
+    """
     limit = query_int(request, "limit", 8, ge=1, le=24)
     ops_limit = query_int(request, "ops-limit", 25, ge=1, le=100)
     db = request.app.state.db
 
-    channels = []
-    for channel_id, op_count, _last_height in db.top_channels(limit=limit):
-        rows = db.channel_operations(channel_id, newest_first=True, limit=ops_limit)
-        operations = [op for op in (serialize_operation(row) for row in rows) if op is not None]
-        if not operations:
-            continue
-        channels.append(
-            {
-                "channel_id": channel_id.hex(),
-                "op_count": op_count,
-                "last_height": operations[0]["height"],
-                "last_slot": operations[0]["slot"],
-                "operations": operations,
-            }
-        )
+    def build() -> dict:
+        channels = []
+        for channel_id, op_count, _last_height in db.top_channels(limit=limit):
+            rows = db.channel_operations(channel_id, newest_first=True, limit=ops_limit)
+            operations = [op for op in (serialize_operation(row) for row in rows) if op is not None]
+            if not operations:
+                continue
+            for op in operations:
+                op["content"] = _preview(op["content"])
+            channels.append(
+                {
+                    "channel_id": channel_id.hex(),
+                    "op_count": op_count,
+                    "last_height": operations[0]["height"],
+                    "last_slot": operations[0]["slot"],
+                    "operations": operations,
+                }
+            )
+        return {"channels": channels}
 
-    return JSONResponse({"channels": channels})
+    return request.app.state.cache.respond(request, build)
