@@ -116,4 +116,4 @@ async def list_channels(request: Request) -> Response:
             )
         return {"channels": channels}
 
-    return request.app.state.cache.respond(request, build)
+    return request.app.state.etag.respond(request, build)

@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 import pytest
 from starlette.requests import Request
 
-from api.http import ChainVersionCache
+from api.http import ChainETag
 from api.v1.channels import INSCRIPTION_PREVIEW_BYTES, get_channel, list_channels
 from core.notifier import ChainNotifier
 from db import Database
@@ -83,7 +83,7 @@ def db(tmp_path):
 
 
 def request(db: Database, path_params: dict | None = None, **query) -> Request:
-    """A GET request against an app whose state holds `db` (and an empty response cache)."""
+    """A GET request against an app whose state holds `db`."""
     scope = {
         "type": "http",
         "method": "GET",
@@ -91,7 +91,7 @@ def request(db: Database, path_params: dict | None = None, **query) -> Request:
         "headers": [],
         "query_string": urlencode(query).encode(),
         "path_params": path_params or {},
-        "app": SimpleNamespace(state=SimpleNamespace(db=db, cache=ChainVersionCache(ChainNotifier()))),
+        "app": SimpleNamespace(state=SimpleNamespace(db=db, etag=ChainETag(ChainNotifier()))),
     }
     return Request(scope)
 
@@ -249,23 +249,20 @@ def test_list_cuts_inscriptions_to_a_preview_with_their_size(db):
     assert full["inscription"] == long_text.hex()
 
 
-def test_list_is_cached_until_the_chain_changes_and_revalidates_by_etag(db):
+def test_list_revalidates_by_etag_until_the_chain_changes(db):
     build_chain(db, [[make_tx(1, [inscribe(CH_A)])]])
     req = request(db, limit=8, **{"ops-limit": 25})
-    notifier = req.app.state.cache.notifier
+    notifier = req.app.state.etag.notifier
 
     def get(headers: dict | None = None):
         scope = {**req.scope, "headers": [(k.encode(), v.encode()) for k, v in (headers or {}).items()]}
         return asyncio.run(list_channels(Request(scope)))
 
-    first = get()
-    etag = first.headers["etag"]
-    newer = make_block(block_hash(3), parent=block_hash(2), slot=20, transactions=[make_tx(2, [inscribe(CH_B)])])
-    extend(db, newer, tip=True)
-    # No publish yet: the cached body and ETag still stand.
-    assert get().body == first.body
+    etag = get().headers["etag"]
     assert get({"if-none-match": etag}).status_code == 304
 
+    newer = make_block(block_hash(3), parent=block_hash(2), slot=20, transactions=[make_tx(2, [inscribe(CH_B)])])
+    extend(db, newer, tip=True)
     asyncio.run(notifier.publish())
     fresh = get({"if-none-match": etag})
     assert fresh.status_code == 200 and fresh.headers["etag"] != etag

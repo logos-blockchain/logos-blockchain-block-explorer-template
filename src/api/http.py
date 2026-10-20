@@ -1,6 +1,6 @@
 import os
 from http.client import BAD_REQUEST, NOT_MODIFIED
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -38,35 +38,22 @@ class NDJsonStreamingResponse(StreamingResponse):
         )
 
 
-class ChainVersionCache:
-    """JSON bodies of read endpoints, kept until ingestion next changes the canonical chain.
+class ChainETag:
+    """Conditional GETs for read endpoints, keyed on the canonical chain's version.
 
-    Every canonical change bumps the notifier's version, so a body built at one
-    version stays correct until the version moves. The version is also the ETag,
-    so a client polling an unchanged chain gets a bodiless 304 without a query.
+    Every canonical change bumps the notifier's version, so a response built at
+    one version stays correct until it moves. A client polling an unchanged chain
+    gets a bodiless 304 without a query.
     """
-
-    MAX_ENTRIES = 32  # distinct query strings per version; past this, bodies are built but not kept
 
     def __init__(self, notifier: ChainNotifier) -> None:
         self.notifier = notifier
         # Versions restart at zero with the process; keep a new process's ETags distinct.
         self._boot = os.urandom(4).hex()
-        self._version: Optional[int] = None
-        self._bodies: Dict[str, bytes] = {}
 
     def respond(self, request: Request, build: Callable[[], Any]) -> Response:
-        version = self.notifier.version
-        etag = f'"{self._boot}-{version}"'
+        etag = f'"{self._boot}-{self.notifier.version}"'
         headers = {"ETag": etag, "Cache-Control": "no-cache"}
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=NOT_MODIFIED, headers=headers)
-        if version != self._version:
-            self._version, self._bodies = version, {}
-        key = f"{request.url.path}?{request.url.query}"
-        body = self._bodies.get(key)
-        if body is None:
-            body = JSONResponse(build()).body
-            if len(self._bodies) < self.MAX_ENTRIES:
-                self._bodies[key] = body
-        return Response(body, media_type="application/json", headers=headers)
+        return JSONResponse(build(), headers=headers)

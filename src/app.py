@@ -9,7 +9,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from api.http import ChainVersionCache
+from api.http import ChainETag
 from api.v1 import blocks, channels, health, live, references, transactions
 from core.notifier import ChainNotifier
 from core.settings import Settings
@@ -91,7 +91,7 @@ async def lifespan(app: Starlette):
     app.state.db = Database(settings.database_path)
     app.state.node_api = HttpNodeApi(settings)
     app.state.notifier = ChainNotifier()
-    app.state.cache = ChainVersionCache(app.state.notifier)
+    app.state.etag = ChainETag(app.state.notifier)
     app.state.lib_slot = 0
     try:
         async with run_ingestion(app):
