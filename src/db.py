@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS channel_operation (
 );
 CREATE INDEX IF NOT EXISTS ix_channel_operation_block_id ON channel_operation (block_id);
 CREATE INDEX IF NOT EXISTS ix_channel_operation_transaction_id ON channel_operation (transaction_id);
-CREATE INDEX IF NOT EXISTS ix_channel_operation_channel_id ON channel_operation (channel_id);
+-- Covers the per-channel sort keys, so paging a channel never reads the table rows it skips.
+CREATE INDEX IF NOT EXISTS ix_channel_operation_channel_order
+    ON channel_operation (channel_id, block_id, transaction_id, op_index);
 """
 
 _PROOF_JSON = TypeAdapter(ProofOfLeadership)
@@ -393,10 +395,26 @@ class Database:
         return pairs, total
 
     def _transactions(self, clause: str, params: tuple) -> List[TransactionWithBlock]:
-        rows = self.conn.execute(
-            f"SELECT {_TX_COLUMNS_T}, {_BLOCK_COLUMNS_B} FROM tx t JOIN block b ON b.id = t.block_id {clause}", params
+        ids = self._ids(f"SELECT t.id FROM tx t JOIN block b ON b.id = t.block_id {clause}", params)
+        rows = self._rows_by_id(
+            f"SELECT {_TX_COLUMNS_T}, {_BLOCK_COLUMNS_B} FROM tx t JOIN block b ON b.id = t.block_id WHERE t.id IN",
+            ids,
         )
         return [(_transaction(row[:4]), _block(row[4:])) for row in rows]
+
+    # Paged and sorted reads pick their ids first, then load the rows. Sorting the
+    # full rows would drag every candidate's operations and proof JSON through
+    # SQLite's sorter only to keep a page of them.
+
+    def _ids(self, sql: str, params: tuple) -> List[int]:
+        return [row[0] for row in self.conn.execute(sql, params)]
+
+    def _rows_by_id(self, sql: str, ids: List[int]) -> List[tuple]:
+        """Rows for `sql` (ending in "WHERE <id column> IN", the id selected first), in the order of `ids`."""
+        by_id: Dict[int, tuple] = {}
+        for chunk in _chunks(ids):
+            by_id.update((row[0], row) for row in self.conn.execute(f"{sql} ({_marks(chunk)})", tuple(chunk)))
+        return [by_id[id_] for id_ in ids if id_ in by_id]
 
     # --- Channels --- #
 
@@ -422,13 +440,18 @@ class Database:
     ) -> List[ChannelOperationRow]:
         """Channel operations with their transaction and block, in chain order."""
         direction = "DESC" if newest_first else "ASC"
-        rows = self.conn.execute(
+        ids = self._ids(
+            "SELECT c.id FROM channel_operation c JOIN block b ON b.id = c.block_id"
+            " WHERE b.canonical = 1 AND c.channel_id = ?"
+            f" ORDER BY b.height {direction}, c.transaction_id {direction}, c.op_index {direction} LIMIT ? OFFSET ?",
+            (channel_id, limit, offset),
+        )
+        rows = self._rows_by_id(
             "SELECT c.id, c.block_id, c.transaction_id, c.channel_id, c.op_type, c.op_index,"
             f" {_TX_COLUMNS_T}, {_BLOCK_COLUMNS_B}"
             " FROM channel_operation c JOIN tx t ON t.id = c.transaction_id JOIN block b ON b.id = c.block_id"
-            " WHERE b.canonical = 1 AND c.channel_id = ?"
-            f" ORDER BY b.height {direction}, t.id {direction}, c.op_index {direction} LIMIT ? OFFSET ?",
-            (channel_id, limit, offset),
+            " WHERE c.id IN",
+            ids,
         )
         return [
             (

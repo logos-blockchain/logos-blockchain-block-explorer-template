@@ -180,3 +180,21 @@ def test_block_round_trips_with_its_transactions(db):
 
     transaction, in_block = db.transaction_by_hash(b"\x0a" * 32)
     assert (transaction.id, in_block.hash) == (stored.transactions[0].id, GENESIS)
+
+
+def test_transaction_pages_are_newest_first_across_and_within_blocks(db):
+    def transaction(tag: int) -> Transaction:
+        return Transaction.model_validate({"hash": bytes([tag]) * 32, "operations": []})
+
+    genesis = make_block(GENESIS, parent=b"\x00", slot=0)
+    genesis.transactions = [transaction(1), transaction(2)]
+    second = make_block(b"\x02", parent=GENESIS, slot=1)
+    second.transactions = [transaction(3), transaction(4), transaction(5)]
+    db.store_blocks([genesis, second])
+    db.set_canonical_tip(b"\x02")
+
+    pages = [db.paginated_transactions(page, 2) for page in range(3)]
+    assert [[t.hash[0] for t, _ in pairs] for pairs, _ in pages] == [[5, 4], [3, 2], [1]]
+    assert {total for _, total in pages} == {5}
+    assert [b.hash for _, b in pages[0][0]] == [b"\x02", b"\x02"]
+    assert [t.hash[0] for t, _ in db.latest_transactions(3)] == [3, 4, 5]  # oldest-first
