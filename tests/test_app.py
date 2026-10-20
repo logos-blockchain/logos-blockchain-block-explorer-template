@@ -4,9 +4,12 @@ import sqlite3
 from types import SimpleNamespace
 
 import pytest
+from starlette.applications import Starlette
+from starlette.responses import StreamingResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from app import create_app
+from app import CompressionMiddleware, create_app
 from core.settings import Settings
 from db import Database
 
@@ -33,6 +36,21 @@ def test_spa_is_served_with_the_prefix_as_base_href(client):
     assert '<base href="/web/explorer/" />' in html
 
 
+def test_static_files_are_revalidated(client):
+    first = client.get("/web/explorer/static/app.js")
+    assert first.headers["cache-control"] == "no-cache"
+    again = client.get("/web/explorer/static/app.js", headers={"If-None-Match": first.headers["etag"]})
+    assert again.status_code == 304
+
+
+def test_spa_preloads_every_app_module(client):
+    html = client.get("/web/explorer/").text
+    for module in ("static/app.js", "static/pages/Home.js", "static/lib/live.js"):
+        assert f'<link rel="modulepreload" href="{module}" />' in html
+        assert client.get(f"/web/explorer/{module}").status_code == 200
+    assert html.count('href="static/vendor/preact/preact.module.js"') == 1
+
+
 def test_unknown_api_and_static_paths_are_404_not_spa(client):
     assert client.get("/web/explorer/api/v1/nope").status_code == 404
     assert client.get("/web/explorer/api/v1/nope").json() == {"detail": "Not Found"}
@@ -43,3 +61,17 @@ def test_bad_query_parameters_are_400(client):
     response = client.get("/api/v1/blocks/list?page-size=abc")
     assert response.status_code == 400
     assert "page-size" in response.json()["detail"]
+
+
+def test_responses_are_gzipped_but_streams_are_not(client):
+    page = client.get("/web/explorer/", headers={"Accept-Encoding": "gzip"})
+    assert page.headers["content-encoding"] == "gzip"
+    script = client.get("/web/explorer/static/app.js", headers={"Accept-Encoding": "gzip"})
+    assert script.headers["content-encoding"] == "gzip"
+
+    async def lines(_request):
+        return StreamingResponse(iter([b"{}\n" * 1000]), media_type="application/x-ndjson")
+
+    streams = TestClient(CompressionMiddleware(Starlette(routes=[Route("/api/v1/blocks/stream", lines)])))
+    response = streams.get("/api/v1/blocks/stream", headers={"Accept-Encoding": "gzip"})
+    assert "content-encoding" not in response.headers
