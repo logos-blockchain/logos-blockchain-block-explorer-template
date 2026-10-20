@@ -10,17 +10,15 @@ const query = (params) =>
         .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
         .join('&');
 
-const HEALTH_ENDPOINT = joinUrl(API_PREFIX, 'health/stream');
+// Feeds with a null prefetch are left out of the stream.
+const LIVE_STREAM = (prefetch) =>
+    `${joinUrl(API_PREFIX, 'stream')}?${query(Object.fromEntries(Object.entries(prefetch).filter(([, v]) => v != null)))}`;
 
 const BLOCK_DETAIL_BY_HASH = (hash) => joinUrl(API_PREFIX, 'blocks', encodeHash(hash));
-const BLOCKS_STREAM = (prefetchLimit) =>
-    `${joinUrl(API_PREFIX, 'blocks/stream')}?${query({ 'prefetch-limit': prefetchLimit })}`;
 const BLOCKS_LIST = (page, pageSize) =>
     `${joinUrl(API_PREFIX, 'blocks/list')}?${query({ page, 'page-size': pageSize })}`;
 
 const TRANSACTION_DETAIL_BY_HASH = (hash) => joinUrl(API_PREFIX, 'transactions', encodeHash(hash));
-const TRANSACTIONS_STREAM = (prefetchLimit) =>
-    `${joinUrl(API_PREFIX, 'transactions/stream')}?${query({ 'prefetch-limit': prefetchLimit })}`;
 const TRANSACTIONS_LIST = (page, pageSize) =>
     `${joinUrl(API_PREFIX, 'transactions/list')}?${query({ page, 'page-size': pageSize })}`;
 
@@ -32,15 +30,13 @@ const CHANNEL_DETAIL_BY_ID = (channelId, page, pageSize) =>
 const NOTE_SEARCH = (noteId) => joinUrl(API_PREFIX, 'notes', encodeHash(noteId));
 
 export const API = {
-    HEALTH_ENDPOINT,
+    LIVE_STREAM,
     CHANNELS_LIST,
     CHANNEL_DETAIL_BY_ID,
     NOTE_SEARCH,
     TRANSACTION_DETAIL_BY_HASH,
-    TRANSACTIONS_STREAM,
     TRANSACTIONS_LIST,
     BLOCK_DETAIL_BY_HASH,
-    BLOCKS_STREAM,
     BLOCKS_LIST,
 };
 

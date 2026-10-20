@@ -15,11 +15,11 @@ async def get(request: Request) -> Response:
     return JSONResponse(health.model_dump())
 
 
-async def _health_stream(node_api: HttpNodeApi, *, poll_interval_seconds: int = 10) -> AsyncIterator[Health]:
+async def updates(node_api: HttpNodeApi, *, poll_interval_seconds: int = 10) -> AsyncIterator[Health]:
     while True:
         yield await node_api.get_health()
         await sleep(poll_interval_seconds)
 
 
 async def stream(request: Request) -> Response:
-    return NDJsonStreamingResponse(into_ndjson_stream(_health_stream(request.app.state.node_api)))
+    return NDJsonStreamingResponse(into_ndjson_stream(updates(request.app.state.node_api)))

@@ -1,4 +1,5 @@
 from http.client import NOT_FOUND
+from typing import AsyncIterator, List
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -9,23 +10,22 @@ from api.v1.schemas import TransactionRead
 from core.types import dehexify
 
 
+async def updates(app, prefetch_limit: int) -> AsyncIterator[List[TransactionRead]]:
+    """The newest `prefetch_limit` canonical transactions, then every one whose block becomes canonical."""
+    db = app.state.db
+    yield [TransactionRead.from_pair(*pair) for pair in db.latest_transactions(prefetch_limit)]
+    async for pairs in follow_chain(
+        app.state.notifier,
+        db.transactions_since,
+        after=db.max_canonical_seq(),
+        cursor_of=lambda pair: pair[1].canonical_seq,
+    ):
+        yield [TransactionRead.from_pair(*pair) for pair in pairs]
+
+
 async def stream(request: Request) -> Response:
-    """The newest `prefetch-limit` canonical transactions, then every one whose block becomes canonical."""
     prefetch_limit = query_int(request, "prefetch-limit", 0, ge=0)
-    db = request.app.state.db
-    bootstrap = [TransactionRead.from_pair(*pair) for pair in db.latest_transactions(prefetch_limit)]
-    after = db.max_canonical_seq()
-
-    async def reads():
-        async for pairs in follow_chain(
-            request.app.state.notifier,
-            db.transactions_since,
-            after=after,
-            cursor_of=lambda pair: pair[1].canonical_seq,
-        ):
-            yield [TransactionRead.from_pair(*pair) for pair in pairs]
-
-    return NDJsonStreamingResponse(into_ndjson_stream(reads(), bootstrap_data=bootstrap))
+    return NDJsonStreamingResponse(into_ndjson_stream(updates(request.app, prefetch_limit)))
 
 
 async def list_transactions(request: Request) -> Response:

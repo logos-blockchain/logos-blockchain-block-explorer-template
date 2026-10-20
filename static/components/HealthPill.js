@@ -1,7 +1,6 @@
 import { h } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { API } from '../lib/api.js';
-import { streamNdjson } from '../lib/utils.js';
+import { subscribe } from '../lib/live.js';
 
 const STATUS = {
     CONNECTING: 'connecting',
@@ -12,7 +11,6 @@ const STATUS = {
 export default function HealthPill() {
     const [status, setStatus] = useState(STATUS.CONNECTING);
     const pillRef = useRef(null);
-    const abortRef = useRef(null);
 
     // Flash animation whenever status changes
     useEffect(() => {
@@ -23,30 +21,21 @@ export default function HealthPill() {
         return () => clearTimeout(id);
     }, [status]);
 
-    useEffect(() => {
-        abortRef.current?.abort();
-        abortRef.current = new AbortController();
-
-        streamNdjson(
-            API.HEALTH_ENDPOINT,
-            (item) => {
-                if (typeof item?.healthy === 'boolean') {
-                    setStatus(item.healthy ? STATUS.ONLINE : STATUS.OFFLINE);
-                }
-            },
-            {
-                signal: abortRef.current.signal,
-                onError: (err) => {
-                    if (!abortRef.current.signal.aborted) {
-                        console.error('Health stream error:', err);
-                        setStatus(STATUS.OFFLINE);
+    useEffect(
+        () =>
+            subscribe('health', {
+                onItem: (item) => {
+                    if (typeof item?.healthy === 'boolean') {
+                        setStatus(item.healthy ? STATUS.ONLINE : STATUS.OFFLINE);
                     }
                 },
-            },
-        );
-
-        return () => abortRef.current?.abort();
-    }, []);
+                onError: (err) => {
+                    console.error('Health stream error:', err);
+                    setStatus(STATUS.OFFLINE);
+                },
+            }),
+        [],
+    );
 
     const className = 'pill ' + (status === STATUS.ONLINE ? 'online' : status === STATUS.OFFLINE ? 'offline' : '');
 

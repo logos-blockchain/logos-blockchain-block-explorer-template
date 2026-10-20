@@ -10,7 +10,7 @@ from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.http import ChainVersionCache
-from api.v1 import blocks, channels, health, notes, transactions
+from api.v1 import blocks, channels, health, live, notes, transactions
 from core.notifier import ChainNotifier
 from core.settings import Settings
 from db import Database
@@ -30,6 +30,7 @@ async def http_exception(_request: Request, exc: HTTPException) -> JSONResponse:
 ROUTES = [
     Mount("/static", static_files, name="static"),
     Route("/api/v1/", api_index, methods=["GET", "HEAD"]),
+    Route("/api/v1/stream", live.stream),
     Route("/api/v1/health/stream", health.stream, methods=["GET", "HEAD"]),
     Route("/api/v1/health", health.get, methods=["GET", "HEAD"]),
     Route("/api/v1/transactions/stream", transactions.stream),

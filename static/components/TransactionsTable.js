@@ -3,7 +3,8 @@ import { h } from 'preact';
 import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { API, PAGE } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
-import { shortenHex, streamNdjson } from '../lib/utils.js';
+import { shortenHex } from '../lib/utils.js';
+import { subscribe } from '../lib/live.js';
 import { opLabel, transferOutputs, tryDecodeUtf8Hex } from '../lib/format.js';
 
 const OPERATIONS_PREVIEW_LIMIT = 2;
@@ -57,12 +58,13 @@ export default function TransactionsTable({ live, onDisableLive }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const abortRef = useRef(null);
+    const unsubscribeRef = useRef(null);
     const seenKeysRef = useRef(new Set());
 
     // Fetch paginated transactions
     const fetchTransactions = useCallback(async (pageNum) => {
-        abortRef.current?.abort();
+        unsubscribeRef.current?.();
+        unsubscribeRef.current = null;
         seenKeysRef.current.clear();
 
         setLoading(true);
@@ -84,8 +86,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
 
     // Start live streaming
     const startLiveStream = useCallback(() => {
-        abortRef.current?.abort();
-        abortRef.current = new AbortController();
+        unsubscribeRef.current?.();
         seenKeysRef.current.clear();
         setTransactions([]);
         setLoading(true);
@@ -93,9 +94,9 @@ export default function TransactionsTable({ live, onDisableLive }) {
 
         let liveTxs = [];
 
-        streamNdjson(
-            API.TRANSACTIONS_STREAM(TABLE_SIZE),
-            (raw) => {
+        unsubscribeRef.current = subscribe('transaction', {
+            prefetch: TABLE_SIZE,
+            onItem: (raw) => {
                 const tx = normalize(raw);
                 if (seenKeysRef.current.has(tx.hash)) return;
                 seenKeysRef.current.add(tx.hash);
@@ -104,16 +105,11 @@ export default function TransactionsTable({ live, onDisableLive }) {
                 setTransactions([...liveTxs]);
                 setLoading(false);
             },
-            {
-                signal: abortRef.current.signal,
-                onError: (e) => {
-                    if (e?.name !== 'AbortError') {
-                        console.error('Transactions stream error:', e);
-                        setError(e?.message || 'Stream error');
-                    }
-                },
+            onError: (e) => {
+                console.error('Transactions stream error:', e);
+                setError(e?.message || 'Stream error');
             },
-        );
+        });
     }, []);
 
     useEffect(() => {
@@ -123,7 +119,7 @@ export default function TransactionsTable({ live, onDisableLive }) {
             setPage(0);
             fetchTransactions(0);
         }
-        return () => abortRef.current?.abort();
+        return () => unsubscribeRef.current?.();
     }, [live, startLiveStream, fetchTransactions]);
 
     // Go to a page (or exit live mode into page 0)

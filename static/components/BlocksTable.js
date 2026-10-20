@@ -3,7 +3,8 @@ import { h } from 'preact';
 import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { PAGE, API } from '../lib/api.js';
 import { TABLE_SIZE } from '../lib/constants.js';
-import { shortenHex, streamNdjson } from '../lib/utils.js';
+import { shortenHex } from '../lib/utils.js';
+import { subscribe } from '../lib/live.js';
 
 const normalize = (raw) => ({
     id: Number(raw.id ?? 0),
@@ -24,13 +25,14 @@ export default function BlocksTable({ live, onDisableLive }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const abortRef = useRef(null);
+    const unsubscribeRef = useRef(null);
     const seenKeysRef = useRef(new Set());
 
     // Fetch paginated blocks
     const fetchBlocks = useCallback(async (pageNum) => {
         // Stop any live stream
-        abortRef.current?.abort();
+        unsubscribeRef.current?.();
+        unsubscribeRef.current = null;
         seenKeysRef.current.clear();
 
         setLoading(true);
@@ -52,8 +54,7 @@ export default function BlocksTable({ live, onDisableLive }) {
 
     // Start live streaming
     const startLiveStream = useCallback(() => {
-        abortRef.current?.abort();
-        abortRef.current = new AbortController();
+        unsubscribeRef.current?.();
         seenKeysRef.current.clear();
         setBlocks([]);
         setLoading(true);
@@ -61,9 +62,9 @@ export default function BlocksTable({ live, onDisableLive }) {
 
         let liveBlocks = [];
 
-        streamNdjson(
-            API.BLOCKS_STREAM(TABLE_SIZE),
-            (raw) => {
+        unsubscribeRef.current = subscribe('block', {
+            prefetch: TABLE_SIZE,
+            onItem: (raw) => {
                 const b = normalize(raw);
                 if (seenKeysRef.current.has(b.hash)) return;
                 seenKeysRef.current.add(b.hash);
@@ -76,16 +77,11 @@ export default function BlocksTable({ live, onDisableLive }) {
                 setBlocks([...liveBlocks]);
                 setLoading(false);
             },
-            {
-                signal: abortRef.current.signal,
-                onError: (e) => {
-                    if (e?.name !== 'AbortError') {
-                        console.error('Blocks stream error:', e);
-                        setError(e?.message || 'Stream error');
-                    }
-                },
+            onError: (e) => {
+                console.error('Blocks stream error:', e);
+                setError(e?.message || 'Stream error');
             },
-        );
+        });
     }, []);
 
     useEffect(() => {
@@ -95,7 +91,7 @@ export default function BlocksTable({ live, onDisableLive }) {
             setPage(0);
             fetchBlocks(0);
         }
-        return () => abortRef.current?.abort();
+        return () => unsubscribeRef.current?.();
     }, [live, startLiveStream, fetchBlocks]);
 
     // Go to a page (or exit live mode into page 0)

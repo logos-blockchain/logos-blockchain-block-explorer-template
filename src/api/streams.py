@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from typing import AsyncIterable, AsyncIterator, Callable, List, Sequence, TypeVar, Union
+from typing import AsyncIterable, AsyncIterator, Callable, Dict, List, Sequence, Tuple, TypeVar, Union
 
 from core.models import LbeSchema
 from core.notifier import ChainNotifier
@@ -25,14 +26,7 @@ def _into_ndjson_data(data: Data) -> bytes:
     return _ndjson_line(data)
 
 
-async def into_ndjson_stream(stream: Stream, *, bootstrap_data: Data = None) -> AsyncIterable[bytes]:
-    if bootstrap_data is not None:
-        ndjson_data = _into_ndjson_data(bootstrap_data)
-        if ndjson_data:
-            yield ndjson_data
-        else:
-            logger.debug("Ignoring streaming bootstrap data because it is empty.")
-
+async def into_ndjson_stream(stream: Stream) -> AsyncIterable[bytes]:
     async for data in stream:
         ndjson_data = _into_ndjson_data(data)
         if ndjson_data:
@@ -65,3 +59,37 @@ async def follow_chain(
             yield list(rows)
             continue
         await notifier.wait_for_change(version, timeout=STREAM_RECHECK_SECONDS)
+
+
+async def merge_topics(streams: Dict[str, Stream]) -> AsyncIterator[Tuple[str, Data]]:
+    """Interleave several streams into (topic, data) pairs, as each produces.
+
+    If any stream fails, the merged stream fails with it; the others are cancelled.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def pump(topic: str, stream: Stream) -> None:
+        try:
+            async for data in stream:
+                await queue.put((topic, data, None))
+        except Exception as error:
+            await queue.put((topic, None, error))
+
+    tasks = [asyncio.create_task(pump(topic, stream)) for topic, stream in streams.items()]
+    try:
+        while True:
+            topic, data, error = await queue.get()
+            if error is not None:
+                raise error
+            yield topic, data
+    finally:
+        for task in tasks:
+            task.cancel()
+
+
+async def into_tagged_ndjson_stream(stream: AsyncIterator[Tuple[str, Data]]) -> AsyncIterable[bytes]:
+    """One `{"topic": ..., "data": ...}` line per item."""
+    async for topic, data in stream:
+        items = data if isinstance(data, list) else [data]
+        if items:
+            yield b"".join(f'{{"topic":"{topic}","data":{item.model_dump_json()}}}\n'.encode() for item in items)
