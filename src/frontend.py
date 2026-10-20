@@ -2,7 +2,7 @@ from http.client import NOT_FOUND
 
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from constants import DIR_REPO
@@ -23,7 +23,21 @@ INDEX_TEMPLATE = (
     )
 )
 
-static_files = StaticFiles(directory=STATIC_DIR)
+
+class RevalidatedStaticFiles(StaticFiles):
+    """Static files the browser must revalidate (a cheap 304) before each use.
+
+    Without a Cache-Control header browsers cache by heuristic, so after a deploy
+    a page could run a mix of old and new modules that no longer fit together.
+    """
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+static_files = RevalidatedStaticFiles(directory=STATIC_DIR)
 
 
 async def spa(request: Request) -> HTMLResponse:

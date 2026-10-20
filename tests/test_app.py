@@ -36,6 +36,13 @@ def test_spa_is_served_with_the_prefix_as_base_href(client):
     assert '<base href="/web/explorer/" />' in html
 
 
+def test_static_files_are_revalidated(client):
+    first = client.get("/web/explorer/static/app.js")
+    assert first.headers["cache-control"] == "no-cache"
+    again = client.get("/web/explorer/static/app.js", headers={"If-None-Match": first.headers["etag"]})
+    assert again.status_code == 304
+
+
 def test_spa_preloads_every_app_module(client):
     html = client.get("/web/explorer/").text
     for module in ("static/app.js", "static/pages/Home.js", "static/lib/live.js"):
