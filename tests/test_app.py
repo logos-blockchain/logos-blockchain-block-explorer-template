@@ -36,6 +36,14 @@ def test_spa_is_served_with_the_prefix_as_base_href(client):
     assert '<base href="/web/explorer/" />' in html
 
 
+def test_spa_preloads_every_app_module(client):
+    html = client.get("/web/explorer/").text
+    for module in ("static/app.js", "static/pages/Home.js", "static/lib/live.js"):
+        assert f'<link rel="modulepreload" href="{module}" />' in html
+        assert client.get(f"/web/explorer/{module}").status_code == 200
+    assert html.count('href="static/vendor/preact/preact.module.js"') == 1
+
+
 def test_unknown_api_and_static_paths_are_404_not_spa(client):
     assert client.get("/web/explorer/api/v1/nope").status_code == 404
     assert client.get("/web/explorer/api/v1/nope").json() == {"detail": "Not Found"}
