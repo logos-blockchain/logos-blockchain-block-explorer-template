@@ -7,12 +7,12 @@ from urllib.parse import urljoin, urlunparse
 import httpx
 from pydantic import ValidationError
 
+from models.health import Health
 from node.api.serializers.block import BlockSerializer
-from node.api.serializers.health import HealthSerializer
 from node.api.serializers.info import InfoSerializer
 
 if TYPE_CHECKING:
-    from core.app import NBESettings
+    from core.settings import Settings
 
 
 logger = logging.getLogger(__name__)
@@ -55,12 +55,12 @@ class HttpNodeApi:
     ENDPOINT_BLOCKS_STREAM = "cryptarchia/events/blocks/stream"
     ENDPOINT_BLOCK_BY_HASH = "cryptarchia/blocks/"  # block hash appended as path segment
 
-    def __init__(self, settings: "NBESettings"):
+    def __init__(self, settings: "Settings"):
         self.host: str = settings.node_api_host
         self.port: int = settings.node_api_port
         self.protocol: str = settings.node_api_protocol or "http"
         self.timeout: int = settings.node_api_timeout or 60
-        self.auth: Optional[httpx.BasicAuth] = settings.node_api_auth.for_httpx() if settings.node_api_auth else None
+        self.auth: Optional[httpx.BasicAuth] = settings.node_api_auth
         self._client = httpx.AsyncClient(timeout=self.timeout, auth=self.auth)
 
     async def aclose(self) -> None:
@@ -91,13 +91,13 @@ class HttpNodeApi:
     def _url(self, endpoint: str) -> str:
         return urljoin(self.base_url, endpoint)
 
-    async def get_health(self) -> HealthSerializer:
+    async def get_health(self) -> Health:
         try:
             response = await self._client.get(self._url(self.ENDPOINT_INFO))
         except httpx.HTTPError as error:
             logger.debug(f"Node health check failed: {error}")
-            return HealthSerializer.from_unhealthy()
-        return HealthSerializer.from_healthy() if response.status_code == 200 else HealthSerializer.from_unhealthy()
+            return Health(healthy=False)
+        return Health(healthy=response.status_code == 200)
 
     async def get_info(self) -> InfoSerializer:
         response = await self._client.get(self._url(self.ENDPOINT_INFO))

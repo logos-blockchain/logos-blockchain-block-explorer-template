@@ -1,7 +1,7 @@
-from core.models import NbeSchema
+from core.models import LbeSchema
 
 
-class Health(NbeSchema):
+class Health(LbeSchema):
     healthy: bool
 
     def __str__(self):

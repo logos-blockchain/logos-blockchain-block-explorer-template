@@ -2,28 +2,27 @@ from typing import List
 
 from pydantic import Field
 
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from models.block import Block
 from node.api.serializers.fields import BytesFromHex
 from node.api.serializers.header import HeaderSerializer
 from node.api.serializers.signed_transaction import SignedTransactionSerializer
 
 
-class UncleSerializer(NbeSerializer):
+class UncleSerializer(LbeSerializer):
     """An uncle reference as the node sends it: the competing block's header and its signature."""
 
     header: HeaderSerializer
     signature: BytesFromHex
 
 
-class BlockSerializer(NbeSerializer):
+class BlockSerializer(LbeSerializer):
     header: HeaderSerializer
     # Absent on pre-0.3.0 nodes.
     uncle_headers: List[UncleSerializer] = Field(default_factory=list)
     transactions: List[SignedTransactionSerializer]
 
     def into_block(self) -> Block:
-        transactions = [transaction.into_transaction() for transaction in self.transactions]
         return Block.model_validate(
             {
                 "hash": self.header.hash,
@@ -41,8 +40,9 @@ class BlockSerializer(NbeSerializer):
                     }
                     for uncle in self.uncle_headers
                 ],
+                "transactions": [transaction.into_transaction() for transaction in self.transactions],
             }
-        ).with_transactions(transactions)
+        )
 
     def __repr__(self) -> str:
         return f"<BlockSerializer(slot={self.header.slot}, hash={self.header.hash.hex()})>"

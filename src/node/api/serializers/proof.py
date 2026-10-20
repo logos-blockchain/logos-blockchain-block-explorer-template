@@ -3,11 +3,11 @@ from typing import Annotated, Any, Optional, Union
 
 from pydantic import BeforeValidator, Field, RootModel
 
-from core.models import NbeSerializer
+from core.models import LbeSerializer
 from models.transactions.operations.proofs import (
     ChannelMultiSignature,
     Ed25519Signature,
-    NbeSignature,
+    LbeSignature,
     NoneProof,
     PoCSignature,
     UnknownSignature,
@@ -19,14 +19,14 @@ from node.api.serializers.fields import BytesFromHex, BytesFromHexOrIntArray
 
 class OperationProofSerializer(ABC):
     @abstractmethod
-    def into_operation_proof(cls) -> NbeSignature:
+    def into_operation_proof(cls) -> LbeSignature:
         raise NotImplementedError
 
 
 class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[bytes]):
     root: BytesFromHexOrIntArray
 
-    def into_operation_proof(self) -> NbeSignature:
+    def into_operation_proof(self) -> LbeSignature:
         return Ed25519Signature.model_validate(
             {
                 "signature": self.root,
@@ -34,7 +34,7 @@ class Ed25519SignatureSerializer(OperationProofSerializer, RootModel[bytes]):
         )
 
 
-class ZkSignatureSerializer(OperationProofSerializer, NbeSerializer):
+class ZkSignatureSerializer(OperationProofSerializer, LbeSerializer):
     """Groth16 ZK proof: pi_a (32B) + pi_b (64B) + pi_c (32B) = 128 bytes total."""
 
     pi_a: BytesFromHexOrIntArray
@@ -44,7 +44,7 @@ class ZkSignatureSerializer(OperationProofSerializer, NbeSerializer):
     def to_bytes(self) -> bytes:
         return self.pi_a + self.pi_b + self.pi_c
 
-    def into_operation_proof(self) -> NbeSignature:
+    def into_operation_proof(self) -> LbeSignature:
         return ZkSignature.model_validate(
             {
                 "signature": self.to_bytes(),
@@ -52,11 +52,11 @@ class ZkSignatureSerializer(OperationProofSerializer, NbeSerializer):
         )
 
 
-class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
+class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, LbeSerializer):
     zk_signature: ZkSignatureSerializer = Field(alias="zk_sig")
     ed25519_signature: BytesFromHex = Field(alias="ed25519_sig")
 
-    def into_operation_proof(self) -> NbeSignature:
+    def into_operation_proof(self) -> LbeSignature:
         return ZkAndEd25519Signature.model_validate(
             {
                 "zk_signature": self.zk_signature.to_bytes(),
@@ -65,26 +65,26 @@ class ZkAndEd25519SignaturesSerializer(OperationProofSerializer, NbeSerializer):
         )
 
 
-class PoCProofSerializer(OperationProofSerializer, NbeSerializer):
+class PoCProofSerializer(OperationProofSerializer, LbeSerializer):
     """Groth16 leader claim (PoC) proof: 128 proof bytes."""
 
     proof: BytesFromHexOrIntArray
 
-    def into_operation_proof(self) -> NbeSignature:
+    def into_operation_proof(self) -> LbeSignature:
         return PoCSignature.model_validate({"proof": self.proof})
 
 
-class IndexedSignatureSerializer(NbeSerializer):
+class IndexedSignatureSerializer(LbeSerializer):
     signature: BytesFromHexOrIntArray = Field(description="Ed25519 signature bytes.")
     channel_key_index: int = Field(description="Index into the channel's key list (u16).")
 
 
-class ChannelMultiSigProofSerializer(OperationProofSerializer, NbeSerializer):
+class ChannelMultiSigProofSerializer(OperationProofSerializer, LbeSerializer):
     """Multi-signature proof for channel config/withdraw/transfer ops."""
 
     signatures: list[IndexedSignatureSerializer]
 
-    def into_operation_proof(self) -> NbeSignature:
+    def into_operation_proof(self) -> LbeSignature:
         return ChannelMultiSignature.model_validate(
             {
                 "signatures": [
@@ -94,18 +94,18 @@ class ChannelMultiSigProofSerializer(OperationProofSerializer, NbeSerializer):
         )
 
 
-class NoneProofSerializer(OperationProofSerializer, NbeSerializer):
+class NoneProofSerializer(OperationProofSerializer, LbeSerializer):
     """Ops that carry no proof (node 0.3.0+: ClaimPowReward).
 
     Serialized by the node as `{"None": null}`; older builds used the bare
     string "NoProof".
     """
 
-    def into_operation_proof(self) -> NbeSignature:
+    def into_operation_proof(self) -> LbeSignature:
         return NoneProof()
 
 
-class UnknownProofSerializer(OperationProofSerializer, NbeSerializer):
+class UnknownProofSerializer(OperationProofSerializer, LbeSerializer):
     """Fallback for proof variants without a typed serializer (e.g. NoProof).
 
     Preserves the raw value verbatim so unknown proof types never break block
@@ -114,7 +114,7 @@ class UnknownProofSerializer(OperationProofSerializer, NbeSerializer):
 
     raw: Optional[Any] = None
 
-    def into_operation_proof(self) -> NbeSignature:
+    def into_operation_proof(self) -> LbeSignature:
         return UnknownSignature.model_validate({"raw": self.raw})
 
 

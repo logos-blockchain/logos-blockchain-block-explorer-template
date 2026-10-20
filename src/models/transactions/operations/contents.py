@@ -3,22 +3,22 @@ from typing import Any, List, Literal, Optional
 
 from pydantic import AliasChoices, Field
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 from models.transactions.notes import Note
 
 
-class NbeContent(NbeSchema):
+class LbeContent(LbeSchema):
     type: str
 
 
-class LedgerTransfer(NbeContent):
+class LedgerTransfer(LbeContent):
     type: Literal["LedgerTransfer"] = "LedgerTransfer"
     inputs: List[HexBytes]
     outputs: List[Note]
 
 
-class ChannelInscribe(NbeContent):
+class ChannelInscribe(LbeContent):
     type: Literal["ChannelInscribe"] = "ChannelInscribe"
     channel_id: HexBytes
     inscription: HexBytes
@@ -26,7 +26,7 @@ class ChannelInscribe(NbeContent):
     signer: HexBytes
 
 
-class ChannelConfig(NbeContent):
+class ChannelConfig(LbeContent):
     type: Literal["ChannelConfig"] = "ChannelConfig"
     channel: HexBytes
     # Config-chain parent, added in node 0.3.0. None for rows ingested from older nodes.
@@ -38,20 +38,20 @@ class ChannelConfig(NbeContent):
     transfer_threshold: int
 
 
-class ChannelDeposit(NbeContent):
+class ChannelDeposit(LbeContent):
     type: Literal["ChannelDeposit"] = "ChannelDeposit"
     channel_id: HexBytes
     inputs: List[HexBytes]
     metadata: HexBytes
 
 
-class ChannelWithdraw(NbeContent):
+class ChannelWithdraw(LbeContent):
     type: Literal["ChannelWithdraw"] = "ChannelWithdraw"
     channel_id: HexBytes
     inputs: List[HexBytes]
 
 
-class ChannelTransfer(NbeContent):
+class ChannelTransfer(LbeContent):
     type: Literal["ChannelTransfer"] = "ChannelTransfer"
     channel_id: HexBytes
     inputs: List[HexBytes]
@@ -62,7 +62,7 @@ class SDPDeclareServiceType(Enum):
     BN = "BN"
 
 
-class SDPDeclare(NbeContent):
+class SDPDeclare(LbeContent):
     type: Literal["SDPDeclare"] = "SDPDeclare"
     service_type: SDPDeclareServiceType
     locators: List[str]
@@ -72,28 +72,28 @@ class SDPDeclare(NbeContent):
     service_note_id: HexBytes = Field(validation_alias=AliasChoices("service_note_id", "locked_note_id"))
 
 
-class SDPWithdraw(NbeContent):
+class SDPWithdraw(LbeContent):
     type: Literal["SDPWithdraw"] = "SDPWithdraw"
     declaration_id: HexBytes
     nonce: int
     service_note_id: HexBytes = Field(validation_alias=AliasChoices("service_note_id", "locked_note_id"))
 
 
-class SDPActive(NbeContent):
+class SDPActive(LbeContent):
     type: Literal["SDPActive"] = "SDPActive"
     declaration_id: HexBytes
     nonce: int
     metadata: Optional[Any] = None
 
 
-class LeaderClaim(NbeContent):
+class LeaderClaim(LbeContent):
     type: Literal["LeaderClaim"] = "LeaderClaim"
     rewards_root: HexBytes
     voucher_nullifier: HexBytes
     pk: HexBytes
 
 
-class ClaimPowReward(NbeContent):
+class ClaimPowReward(LbeContent):
     """Redeems a proof-of-work reward ticket (node 0.3.0+). Carries no proof."""
 
     type: Literal["ClaimPowReward"] = "ClaimPowReward"
@@ -102,7 +102,7 @@ class ClaimPowReward(NbeContent):
     public_key: HexBytes
 
 
-class UnknownOp(NbeContent):
+class UnknownOp(LbeContent):
     """Fallback for mantle ops without a typed model (same approach as #19).
 
     Preserves the opcode and raw payload verbatim so new node op types never

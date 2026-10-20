@@ -1,8 +1,8 @@
-# Nomos Block Explorer
+# Logos Blockchain Explorer
 
-This is a Proof of Concept (PoC) for a block explorer for the Nomos blockchain.
+This is a Proof of Concept (PoC) for a block explorer for the Logos blockchain.
 
-![Nomos Block Explorer Screenshot](resources/webui.png)
+![Logos Blockchain Explorer Screenshot](resources/webui.png)
 
 ## Features
 
@@ -11,23 +11,23 @@ This is a Proof of Concept (PoC) for a block explorer for the Nomos blockchain.
     - Home: Live stream of the latest Blocks and Transactions.
     - Block: Details of a Block, including a list of its transactions.
     - Transaction: Details of a Transaction.
-- Backend (FastAPI)
+- Backend (Starlette)
   - API
     - REST API to query Blocks and Transactions.
-    - SSE API to stream live Blocks (and its transactions).
+    - NDJSON streams of live Blocks (and their transactions).
   - Node integration over the node's HTTP API, with a chain-walking backfill.
   - Simple backfilling mechanism to populate historical blocks.
 
 ## Architecture
 
-The Nomos Block Explorer follows a three-tier architecture with a clear separation of concerns:
+The Logos Blockchain Explorer follows a three-tier architecture with a clear separation of concerns:
 
 ### High-Level Overview
 
 ```mermaid
 graph LR;
-A[Nomos<br/>Node] -->|REST/SSE| B["Backend<br/>(FastAPI)"]
-B -->|REST/SSE| C["Frontend<br/>(Preact)"]
+A[Logos<br/>Node] -->|REST/SSE| B["Backend<br/>(FastAPI)"]
+B -->|REST/NDJSON| C["Frontend<br/>(Preact)"]
 B <--> D["Database<br/>(SQLite)"]
 ```
 
@@ -37,29 +37,28 @@ B <--> D["Database<br/>(SQLite)"]
 - **Framework**: Preact (lightweight React alternative)
 - **Routing**: Client-side SPA routing
 - **Architecture**: Component-based with functional components
-- **Communication**: REST API calls and Server-Sent Events (SSE) for real-time updates
+- **Communication**: REST API calls and NDJSON streams for real-time updates
 
 #### 2. Backend (`/src`)
-- **Framework**: FastAPI (Python async web framework)
-- **API Layer** (`/src/api`): Serializers, REST and streaming endpoints
-- **Core** (`/src/core`): Application setup, configuration, base types and mixins
-- **Database Layer** (`/src/db`): Repository pattern for data access
-- **Models** (`/src/models`): Domain models (Block, Transaction, Header, etc.)
-- **Node Integration** (`/src/node`): HTTP client for the node API, wire-format serializers, ingestion lifespan
+- **Framework**: Starlette on uvicorn; `app.py` holds the route table and lifespan
+- **API Layer** (`/src/api`): API schemas, REST and streaming endpoints
+- **Core** (`/src/core`): Settings, base types, the ingestion-to-stream notifier
+- **Database** (`/src/db.py`): SQLite schema and every query, on the standard library's `sqlite3`
+- **Models** (`/src/models`): Stored models (Block, Transaction, Header, etc.), plain pydantic
+- **Node Integration** (`/src/node`): HTTP client for the node API, wire-format serializers, ingestion loop
 
 #### 3. Data Flow
 
 1. **Node Updates**: On startup, the backend starts listening for new blocks from the node and stores them in the database
 2. **Backfilling**: After at least one block is in the database, the backend fetches historical blocks from the node and stores them
-3. **Client Updates**: Frontend subscribes to SSE endpoints for real-time block and transaction updates
-4. **Data Access**: All queries route through repository classes for consistent data access
+3. **Client Updates**: Frontend subscribes to the NDJSON streams for real-time block and transaction updates
+4. **Data Access**: All queries live in `src/db.py`
 5. **Canonical chain**: Every block event from the node carries the node's current tip; ingestion flags that tip's chain canonical (flipping the flags above the common ancestor on a reorg) and every read serves it
 
 #### 4. Key Design Patterns
 
-- **Repository Pattern**: Abstraction layer for database operations (`BlockRepository`, `TransactionRepository`)
-- **Adapter Pattern**: Serializers convert between Node API formats and internal domain models
-- **Observer Pattern**: SSE streams for pushing real-time updates to clients
+- **Adapter Pattern**: Serializers convert between Node API formats and the stored models
+- **Observer Pattern**: Ingestion notifies open streams after each commit; streams cursor on the canonical sequence
 
 
 ## Requirements
@@ -82,26 +81,32 @@ By default, this will try to connect to a local Node API on `127.0.0.1:8080`.
 
 - You can optionally run it via Docker with:
     ```bash
-    docker build -t nomos-block-explorer . && docker run -p 8000:8000 nomos-block-explorer
+    docker build -t logos-blockchain-explorer . && docker run -p 8000:8000 logos-blockchain-explorer
     ```
 
 ### Configuration
 
 The block explorer is configured through environment variables. The following variables are available:
 ```dotenv
-NBE_LOG_LEVEL=DEBUG  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LBE_LOG_LEVEL=DEBUG  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-NBE_NODE_API_HOST=127.0.0.1  # Host, host/path, or a full URL such as https://example.org/node/1
-NBE_NODE_API_PORT=8080  # Ignored when NBE_NODE_API_HOST is a full URL
-NBE_NODE_API_PROTOCOL=http  # Ignored when NBE_NODE_API_HOST is a full URL
-NBE_NODE_API_TIMEOUT=60
-NBE_NODE_API_AUTH="Basic <base64 user:pass>"  # Optional
+LBE_NODE_API_HOST=127.0.0.1  # Host, host/path, or a full URL such as https://example.org/node/1
+LBE_NODE_API_PORT=8080  # Ignored when LBE_NODE_API_HOST is a full URL
+LBE_NODE_API_PROTOCOL=http  # Ignored when LBE_NODE_API_HOST is a full URL
+LBE_NODE_API_TIMEOUT=60
+LBE_NODE_API_AUTH="Basic <base64 user:pass>"  # Optional
 
-NBE_HOST=0.0.0.0  # Block Explorer's listening host
-NBE_PORT=8000  # Block Explorer's listening port
+LBE_HOST=0.0.0.0  # Block Explorer's listening host
+LBE_PORT=8000  # Block Explorer's listening port
+LBE_BASE_PATH=  # Path prefix when served behind a reverse proxy, e.g. /explorer
 
-NBE_DATABASE_URL=sqlite:///sqlite.db  # Database connection URL
+LBE_DATABASE_PATH=sqlite.db  # SQLite database file (defaults to sqlite.db in the repository root)
 ```
+A `.env` file in the repository root is loaded at startup; variables already set in the environment win.
+
+The previous `NBE_*` names (and `NBE_DATABASE_URL=sqlite:///<path>`) are still accepted as deprecated aliases
+until deployments have moved to `LBE_*`; a warning is logged when one is used.
+
 If running the Block Explorer with Docker, these can be overridden.
 
 ## Considerations
@@ -117,10 +122,6 @@ This PoC makes simplifications to focus on the core features:
   - Make requests concurrently
   - Backfill all slots
   - Upsert received blocks and transactions
-- Database
-  - Update to Postgres
-  - Add migrations management
-- Add interfaces to database repositories: `BlockRepository` and `TransactionRepository`
 - Add tests
 - Colour logs by level
 - Reconnections

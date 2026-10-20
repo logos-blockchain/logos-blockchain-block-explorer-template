@@ -167,11 +167,22 @@ function OutputsTable({ outputs }) {
                         h(
                             'td',
                             null,
-                            h(
-                                'span',
-                                { class: 'mono', style: 'display:inline-block; overflow-wrap:anywhere;' },
-                                String(note.public_key ?? ''),
-                            ),
+                            /^[0-9a-f]{64}$/i.test(String(note.public_key))
+                                ? h(
+                                      'a',
+                                      {
+                                          class: 'linkish mono',
+                                          style: 'display:inline-block; overflow-wrap:anywhere;',
+                                          href: PAGE.KEY_DETAIL(String(note.public_key)),
+                                          title: 'Find transactions naming this public key',
+                                      },
+                                      String(note.public_key),
+                                  )
+                                : h(
+                                      'span',
+                                      { class: 'mono', style: 'display:inline-block; overflow-wrap:anywhere;' },
+                                      String(note.public_key ?? ''),
+                                  ),
                             h('span', { class: 'sr-only' }, ' '),
                         ),
                         h('td', { class: 'amount', style: 'text-align:right;' }, toLocaleNum(note.value)),

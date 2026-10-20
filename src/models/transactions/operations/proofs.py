@@ -1,51 +1,51 @@
 from typing import Any, Literal, Optional
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 
 
-class NbeSignature(NbeSchema):
+class LbeSignature(LbeSchema):
     type: str
 
 
-class Ed25519Signature(NbeSignature):
+class Ed25519Signature(LbeSignature):
     type: Literal["Ed25519"] = "Ed25519"
     signature: HexBytes
 
 
-class ZkSignature(NbeSignature):
+class ZkSignature(LbeSignature):
     type: Literal["Zk"] = "Zk"
     signature: HexBytes
 
 
-class ZkAndEd25519Signature(NbeSignature):
+class ZkAndEd25519Signature(LbeSignature):
     type: Literal["ZkAndEd25519"] = "ZkAndEd25519"
     zk_signature: HexBytes
     ed25519_signature: HexBytes
 
 
-class PoCSignature(NbeSignature):
+class PoCSignature(LbeSignature):
     type: Literal["PoC"] = "PoC"
     proof: HexBytes
 
 
-class IndexedSignature(NbeSchema):
+class IndexedSignature(LbeSchema):
     signature: HexBytes
     channel_key_index: int
 
 
-class ChannelMultiSignature(NbeSignature):
+class ChannelMultiSignature(LbeSignature):
     type: Literal["ChannelMultiSig"] = "ChannelMultiSig"
     signatures: list[IndexedSignature]
 
 
-class NoneProof(NbeSignature):
+class NoneProof(LbeSignature):
     """Ops that require no proof (e.g. ClaimPowReward)."""
 
     type: Literal["None"] = "None"
 
 
-class UnknownSignature(NbeSignature):
+class UnknownSignature(LbeSignature):
     """Fallback for proof variants without a typed model (same approach as #19).
 
     `raw` holds the value verbatim — it covers unit variants like "NoProof"

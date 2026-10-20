@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, Union
 
-from core.models import NbeSchema
+from core.models import LbeSchema
 from core.types import HexBytes
 
 
@@ -9,11 +9,11 @@ class ProofOfLeadershipType(Enum):
     GROTH16 = "GROTH16"
 
 
-class NbeProofOfLeadership(NbeSchema):
+class LbeProofOfLeadership(LbeSchema):
     type: ProofOfLeadershipType
 
 
-class Groth16ProofOfLeadership(NbeProofOfLeadership):
+class Groth16ProofOfLeadership(LbeProofOfLeadership):
     type: ProofOfLeadershipType = ProofOfLeadershipType.GROTH16
     entropy_contribution: HexBytes
     leader_key: HexBytes
